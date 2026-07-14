@@ -70,6 +70,33 @@ export const api = {
   portfolio: {
     get: (userId: number) => request<PortfolioItem[]>(`/portfolio/${userId}`),
   },
+  engine: {
+    brokers: () => request<any[]>("/engine/brokers"),
+    price: (broker: string, symbol: string) =>
+      request<{ broker: string; symbol: string; price: number }>(
+        `/engine/price?broker=${broker}&symbol=${symbol}`
+      ),
+    order: (data: {
+      broker: string;
+      symbol: string;
+      side: "buy" | "sell";
+      quantity?: number;
+      lot?: number;
+      sl?: number;
+      tp?: number;
+      comment?: string;
+    }) =>
+      request<any>("/engine/order", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    positions: (broker?: string) =>
+      request<any[]>(`/engine/positions${broker ? `?broker=${broker}` : ""}`),
+    closePosition: (broker: string, ticket: string | number) =>
+      request<any>(`/engine/positions/${broker}/${ticket}`, {
+        method: "DELETE",
+      }),
+  },
   strategies: {
     list: (userId: number) => request(`/strategies/${userId}`),
     create: (data: {
