@@ -5,11 +5,15 @@ import { usePathname, useRouter } from "next/navigation";
 import AuthGuard from "@/components/AuthGuard";
 import { clearSession, getUser } from "@/lib/auth";
 
-const navLinks = [
+const userNavLinks = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/mercado", label: "Mercado" },
   { href: "/trading", label: "Trading" },
   { href: "/lucy", label: "Lucy AI" },
+];
+
+const adminNavLinks = [
+  { href: "/admin", label: "⚙ Admin" },
 ];
 
 export default function DashboardLayout({
@@ -20,11 +24,14 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const user = getUser();
+  const isAdmin = user?.role === "admin";
 
   function handleLogout() {
     clearSession();
     router.replace("/");
   }
+
+  const navLinks = isAdmin ? [...userNavLinks, ...adminNavLinks] : userNavLinks;
 
   return (
     <AuthGuard>
@@ -38,8 +45,12 @@ export default function DashboardLayout({
                   key={link.href}
                   href={link.href}
                   className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
-                    pathname === link.href
-                      ? "bg-gold/10 text-gold"
+                    pathname === link.href || pathname.startsWith(link.href + "/")
+                      ? link.href === "/admin"
+                        ? "bg-amber-500/20 text-amber-400"
+                        : "bg-gold/10 text-gold"
+                      : link.href === "/admin"
+                      ? "text-amber-500/70 hover:text-amber-400"
                       : "text-zinc-400 hover:text-white"
                   }`}
                 >
@@ -50,7 +61,14 @@ export default function DashboardLayout({
           </div>
           <div className="flex items-center gap-4">
             {user && (
-              <span className="text-sm text-zinc-500">{user.username}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-zinc-500">{user.username}</span>
+                {isAdmin && (
+                  <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-400">
+                    ADMIN
+                  </span>
+                )}
+              </div>
             )}
             <button
               onClick={handleLogout}

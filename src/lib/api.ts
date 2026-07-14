@@ -131,7 +131,30 @@ export const api = {
     signals: (symbol: string) =>
       request<LucyAnalysis>(`/lucy/signals/${encodeURIComponent(symbol)}`),
   },
+  admin: {
+    stats: () => request<AdminStats>("/admin/stats"),
+    users: (params?: { page?: number; limit?: number; search?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.page) qs.set("page", String(params.page));
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.search) qs.set("search", params.search);
+      return request<AdminUsersData>(`/admin/users?${qs}`);
+    },
+    getUser: (id: number) => request<AdminUser>(`/admin/users/${id}`),
+    updateUser: (id: number, data: Partial<AdminUser & { password: string }>) =>
+      request<AdminUser>(`/admin/users/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    deleteUser: (id: number) =>
+      request(`/admin/users/${id}`, { method: "DELETE" }),
+    promote: (id: number) =>
+      request(`/admin/users/${id}/promote`, { method: "POST" }),
+    demote: (id: number) =>
+      request(`/admin/users/${id}/demote`, { method: "POST" }),
+  },
 };
+
 
 export interface Trade {
   id: number;
@@ -168,4 +191,32 @@ export interface LucyAnalysis {
   support: number;
   resistance: number;
   trend: "bullish" | "bearish" | "neutral";
+}
+
+export interface AdminUser {
+  id: number;
+  username: string;
+  email: string;
+  role: "user" | "admin";
+  balance: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AdminStats {
+  totalUsers: number;
+  totalTrades: number;
+  totalStrategies: number;
+  activeUsers: number;
+  adminUsers: number;
+}
+
+export interface AdminUsersData {
+  users: AdminUser[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    pages: number;
+  };
 }
