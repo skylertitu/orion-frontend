@@ -1,4 +1,4 @@
-import { getToken } from "./auth";
+import { getToken, User } from "./auth";
 
 const API_BASE = "/api";
 
@@ -9,10 +9,7 @@ export interface ApiResponse<T = unknown> {
   error?: string;
 }
 
-export interface AuthData {
-  id: number;
-  username: string;
-  email: string;
+export interface AuthData extends User {
   token: string;
 }
 
@@ -42,38 +39,57 @@ async function request<T>(
 
 export const api = {
   auth: {
-    login: (email: string, password: string) =>
+    login: (email: string, password: string, rememberMe = true) =>
       request<AuthData>("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, rememberMe }),
       }),
-    register: (username: string, email: string, password: string) =>
-      request<AuthData>("/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ username, email, password }),
-      }),
-  },
-  trades: {
-    list: (userId: number) => request<Trade[]>(`/trades/${userId}`),
-    create: (data: {
-      userId: number;
-      symbol: string;
-      type: "buy" | "sell";
-      quantity: number;
-      price: number;
+    register: (data: {
+      username?: string;
+      email: string;
+      password: string;
+      firstName?: string;
+      lastName?: string;
+      phone?: string;
+      termsAccepted?: boolean;
     }) =>
-      request("/trades", {
+      request<AuthData>("/auth/register", {
         method: "POST",
         body: JSON.stringify(data),
       }),
-  },
-  portfolio: {
-    get: (userId: number) => request<PortfolioItem[]>(`/portfolio/${userId}`),
+    getMe: () => request<User>("/auth/me"),
+    forgotPassword: (email: string) =>
+      request<{ resetToken?: string }>("/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      }),
+    resetPassword: (token: string, newPassword: string) =>
+      request("/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify({ token, newPassword }),
+      }),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      request("/auth/change-password", {
+        method: "PUT",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      }),
+    updateProfile: (profileData: {
+      firstName?: string;
+      lastName?: string;
+      phone?: string;
+      country?: string;
+      language?: string;
+      timezone?: string;
+    }) =>
+      request<User>("/auth/profile", {
+        method: "PUT",
+        body: JSON.stringify(profileData),
+      }),
   },
   engine: {
-    brokers: () => request<any[]>("/engine/brokers"),
+    brokers: () => request<BrokerStatus[]>("/engine/brokers"),
     price: (broker: string, symbol: string) =>
-      request<{ broker: string; symbol: string; price: number }>(
+      request<{ broker: string; symbol: symbol; price: number }>(
         `/engine/price?broker=${broker}&symbol=${symbol}`
       ),
     order: (data: {
@@ -85,13 +101,19 @@ export const api = {
       sl?: number;
       tp?: number;
       comment?: string;
+      brokerAccountId?: number;
     }) =>
       request<any>("/engine/order", {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    positions: (broker?: string) =>
-      request<any[]>(`/engine/positions${broker ? `?broker=${broker}` : ""}`),
+    positions: (broker?: string, brokerAccountId?: number) => {
+      const qs = new URLSearchParams();
+      if (broker) qs.set("broker", broker);
+      if (brokerAccountId) qs.set("brokerAccountId", String(brokerAccountId));
+      const query = qs.toString();
+      return request<any[]>(`/engine/positions${query ? `?${query}` : ""}`);
+    },
     closePosition: (broker: string, ticket: string | number) =>
       request<any>(`/engine/positions/${broker}/${ticket}`, {
         method: "DELETE",
@@ -115,6 +137,34 @@ export const api = {
         body: JSON.stringify({ userId }),
       }),
   },
+  mt: {
+    status: () => request<{ connected: boolean; message: string }>("/mt/status"),
+  },
+  brokerAccounts: {
+    list: (userId: number) => request<BrokerAccountPublic[]>(`/broker-accounts/${userId}`),
+    get: (userId: number, id: number) =>
+      request<BrokerAccountPublic>(`/broker-accounts/${userId}/${id}`),
+    create: (data: CreateBrokerAccountPayload) =>
+      request<BrokerAccountPublic>("/broker-accounts", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (userId: number, id: number, data: UpdateBrokerAccountPayload) =>
+      request<BrokerAccountPublic>(`/broker-accounts/${userId}/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    delete: (userId: number, id: number) =>
+      request(`/broker-accounts/${userId}/${id}`, { method: "DELETE" }),
+    test: (userId: number, id: number) =>
+      request<BrokerConnectionTestResult>(`/broker-accounts/${userId}/${id}/test`, {
+        method: "POST",
+      }),
+    setPrimary: (userId: number, id: number) =>
+      request<BrokerAccountPublic>(`/broker-accounts/${userId}/${id}/set-primary`, {
+        method: "POST",
+      }),
+  },
   lucy: {
     health: () => request<{ alive: boolean }>("/lucy/health"),
     analyze: (data: {
@@ -130,6 +180,15 @@ export const api = {
       }),
     signals: (symbol: string) =>
       request<LucyAnalysis>(`/lucy/signals/${encodeURIComponent(symbol)}`),
+  },
+  signals: {
+    list: (userId: number, params?: { limit?: number; source?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.source) qs.set("source", params.source);
+      const q = qs.toString();
+      return request<SignalRecord[]>(`/signals/${userId}${q ? `?${q}` : ""}`);
+    },
   },
   admin: {
     stats: () => request<AdminStats>("/admin/stats"),
@@ -155,25 +214,85 @@ export const api = {
   },
 };
 
-
-export interface Trade {
-  id: number;
-  userId: number;
-  symbol: string;
-  type: "buy" | "sell";
-  quantity: number;
-  price: number;
-  total: number;
-  status: "open" | "closed" | "cancelled";
-  createdAt: string;
+export interface BrokerStatus {
+  id: string;
+  label: string;
+  connected: boolean;
+  enabled: boolean;
+  message?: string;
+  error?: string;
 }
 
-export interface PortfolioItem {
+export interface BrokerAccountPublic {
   id: number;
   userId: number;
+  brokerId: string;
+  accountName: string;
+  accountType: string;
+  environment: string;
+  externalRef: string | null;
+  status: string;
+  isPrimary: boolean;
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  meta: Record<string, unknown>;
+  hasCredentials: boolean;
+  credentialFields: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BrokerAccountCredentialsInput {
+  apiKey?: string;
+  apiSecret?: string;
+  passphrase?: string;
+}
+
+export interface CreateBrokerAccountPayload {
+  userId: number;
+  brokerId: string;
+  accountName: string;
+  accountType?: string;
+  environment?: string;
+  externalRef?: string;
+  isPrimary?: boolean;
+  meta?: Record<string, unknown>;
+  credentials?: BrokerAccountCredentialsInput;
+}
+
+export interface UpdateBrokerAccountPayload {
+  accountName?: string;
+  accountType?: string;
+  environment?: string;
+  externalRef?: string;
+  status?: string;
+  isPrimary?: boolean;
+  meta?: Record<string, unknown>;
+  credentials?: BrokerAccountCredentialsInput;
+}
+
+export interface BrokerConnectionTestResult {
+  connected: boolean;
+  status: string;
+  message: string;
+  account: BrokerAccountPublic;
+}
+
+export interface SignalRecord {
+  id: number;
+  strategyId: number;
+  userId: number;
   symbol: string;
-  quantity: number;
-  averagePrice: number;
+  action: string;
+  confidence: number;
+  reason: string;
+  price: number;
+  executed: boolean;
+  source: string;
+  brokerAccountId?: number | null;
+  lucyRunId?: string | null;
+  decision?: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 export interface LucySignal {

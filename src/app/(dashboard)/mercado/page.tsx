@@ -1,198 +1,224 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import MarketChart, { parseKlines } from "@/components/MarketChart";
-import {
-  BINANCE_INTERVALS,
-  BINANCE_PAIRS,
-  DEFAULT_SYMBOL,
-  SOLANA_PAIRS,
-  formatPair,
-} from "@/lib/binance";
+import LiveChart from "@/components/LiveChart";
+import BrokerConnections from "@/components/BrokerConnections";
+import { BINANCE_PAIRS, formatPair } from "@/lib/binance";
 
-interface Ticker {
+interface LivePrice {
   symbol: string;
-  pair: string;
   price: number;
   change: number;
-  volume: number;
 }
 
-type MarketFilter = "all" | "solana";
+const PRICE_FLUSH_MS = 400;
 
 export default function MercadoPage() {
-  const [symbol, setSymbol] = useState(DEFAULT_SYMBOL);
-  const [timeframe, setTimeframe] = useState("1h");
-  const [filter, setFilter] = useState<MarketFilter>("all");
-  const [klines, setKlines] = useState<ReturnType<typeof parseKlines>>([]);
-  const [tickers, setTickers] = useState<Ticker[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const isFirstLoad = useRef(true);
+  const [selectedSymbol, setSelectedSymbol] = useState("BTCUSDT");
+  const [prices, setPrices] = useState<Map<string, LivePrice>>(new Map());
+  const [streamConnected, setStreamConnected] = useState(false);
+  const [streamError, setStreamError] = useState<string | undefined>();
+  const [search, setSearch] = useState("");
 
-  const visiblePairs =
-    filter === "solana"
-      ? BINANCE_PAIRS.filter((p) => p.network === "solana")
-      : BINANCE_PAIRS;
-
-  const visibleTickers = tickers.filter((t) =>
-    visiblePairs.some((p) => p.symbol === t.pair)
-  );
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const streamOkRef = useRef(false);
+  const pendingPrices = useRef(new Map<string, LivePrice>());
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    let cancelled = false;
+    const streams = BINANCE_PAIRS.map((p) => `${p.symbol.toLowerCase()}@ticker`).join("/");
 
-    async function loadTickers() {
-      try {
-        const res = await fetch("/api/market/tickers");
-        if (!cancelled && res.ok) setTickers(await res.json());
-      } catch {
-        // optional
+    function markStream(ok: boolean, error?: string) {
+      if (ok) {
+        if (!streamOkRef.current) {
+          streamOkRef.current = true;
+          setStreamConnected(true);
+        }
+        setStreamError(undefined);
+      } else {
+        if (streamOkRef.current) {
+          streamOkRef.current = false;
+          setStreamConnected(false);
+        }
+        if (error) setStreamError(error);
       }
     }
 
-    loadTickers();
-    const tickerTimer = window.setInterval(loadTickers, 60000);
+    function flushPrices() {
+      flushTimer.current = undefined;
+      setPrices(new Map(pendingPrices.current));
+    }
+
+    function schedulePriceFlush() {
+      if (flushTimer.current) return;
+      flushTimer.current = setTimeout(flushPrices, PRICE_FLUSH_MS);
+    }
+
+    function connect() {
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+      const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+      wsRef.current = ws;
+
+      ws.onopen = () => markStream(true);
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          const d = msg.data ?? msg;
+          if (!d.s) return;
+
+          markStream(true);
+          pendingPrices.current.set(d.s, {
+            symbol: d.s,
+            price: parseFloat(d.c),
+            change: parseFloat(d.P),
+          });
+          schedulePriceFlush();
+        } catch {
+          /* ignore */
+        }
+      };
+
+      ws.onclose = () => {
+        markStream(false, "WebSocket cerrado. Reintentando...");
+        reconnectTimer.current = setTimeout(connect, 5000);
+      };
+
+      ws.onerror = () => {
+        markStream(false, "No se pudo conectar al stream de Binance");
+        ws.close();
+      };
+    }
+
+    connect();
+
     return () => {
-      cancelled = true;
-      window.clearInterval(tickerTimer);
+      clearTimeout(reconnectTimer.current);
+      clearTimeout(flushTimer.current);
+      wsRef.current?.close();
+      wsRef.current = null;
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
+  const filteredPairs = BINANCE_PAIRS.filter(
+    (p) =>
+      p.symbol.toLowerCase().includes(search.toLowerCase()) ||
+      p.base.toLowerCase().includes(search.toLowerCase())
+  );
 
-    async function loadChart() {
-      if (isFirstLoad.current) setLoading(true);
-      setError("");
-
-      try {
-        const res = await fetch(
-          `/api/market/klines?symbol=${symbol}&interval=${timeframe}&limit=200`
-        );
-        if (!res.ok) throw new Error("Error al cargar gráfica");
-        const raw = await res.json();
-        if (!cancelled) setKlines(parseKlines(raw));
-      } catch {
-        if (!cancelled) setError("No se pudieron cargar los datos de Binance");
-      }
-
-      if (!cancelled) {
-        setLoading(false);
-        isFirstLoad.current = false;
-      }
-    }
-
-    loadChart();
-    const chartTimer = window.setInterval(loadChart, 60000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(chartTimer);
-    };
-  }, [symbol, timeframe]);
-
-  const currentPair = BINANCE_PAIRS.find((p) => p.symbol === symbol);
+  const selectedPrice = prices.get(selectedSymbol);
 
   return (
-    <div className="flex w-full flex-col gap-6 p-8">
-      <div className="flex items-start justify-between">
+    <div className="flex w-full flex-col gap-6 p-6 bg-zinc-950 text-white min-h-[calc(100vh-3.5rem)]">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-zinc-900/40 p-4 backdrop-blur-md">
         <div>
-          <h1 className="text-2xl font-bold text-white">Mercado</h1>
-          <p className="text-sm text-zinc-500">Datos en tiempo real desde Binance</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-black text-white">Mercados en Vivo</h1>
+            <span className="rounded-full bg-gold/10 px-2.5 py-0.5 text-xs font-bold text-gold border border-gold/20">
+              {formatPair(selectedSymbol)}
+            </span>
+          </div>
+          <p className="text-xs text-zinc-400">
+            {selectedPrice
+              ? `Cotización actual: $${selectedPrice.price.toLocaleString(undefined, { maximumFractionDigits: 2 })} (${selectedPrice.change >= 0 ? "+" : ""}${selectedPrice.change.toFixed(2)}%)`
+              : "Transmisión de precios Binance en vivo"}
+          </p>
         </div>
-        {currentPair?.network === "solana" && (
-          <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-3 py-1 text-xs font-medium text-purple-400">
-            Ecosistema Solana
-          </span>
-        )}
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          {error}
+      <BrokerConnections streamConnected={streamConnected} streamError={streamError} />
+
+      {/* Main Grid: Left Market Pairs List + Right Live Chart */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        {/* Market Pairs List */}
+        <div className="xl:col-span-4 flex flex-col rounded-2xl border border-zinc-800/80 bg-zinc-950/80 p-4 backdrop-blur-md shadow-xl max-h-[600px]">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+              Lista de Activos
+            </span>
+            <span className="text-[11px] text-gold font-mono">{filteredPairs.length} pares</span>
+          </div>
+
+          <div className="relative mb-3">
+            <input
+              type="text"
+              placeholder="Buscar par (BTC, ETH)..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3.5 py-2 pl-9 text-xs text-white outline-none focus:border-gold"
+            />
+            <svg className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+            {filteredPairs.map((p) => {
+              const live = prices.get(p.symbol);
+              const isSelected = selectedSymbol === p.symbol;
+              const isPositive = (live?.change || 0) >= 0;
+
+              return (
+                <button
+                  key={p.symbol}
+                  type="button"
+                  onClick={() => setSelectedSymbol(p.symbol)}
+                  className={`w-full flex items-center justify-between rounded-xl border p-3 text-left transition-all ${
+                    isSelected
+                      ? "border-gold/60 bg-gold/10 shadow-md"
+                      : "border-zinc-800/60 bg-zinc-900/40 hover:border-zinc-700 hover:bg-zinc-900"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-800 font-mono text-xs font-bold text-gold">
+                      {p.base.substring(0, 3)}
+                    </div>
+                    <div>
+                      <div className="font-bold text-white text-xs font-mono">{formatPair(p.symbol)}</div>
+                      <div className="text-[10px] text-zinc-500">Binance Spot</div>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="font-mono text-xs font-semibold text-white">
+                      {live
+                        ? `$${live.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                        : "—"}
+                    </div>
+                    {live && (
+                      <span
+                        className={`text-[10px] font-semibold ${
+                          isPositive ? "text-emerald-400" : "text-red-400"
+                        }`}
+                      >
+                        {isPositive ? "+" : ""}
+                        {live.change.toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      )}
 
-      <div className="flex gap-2">
-        {(["all", "solana"] as MarketFilter[]).map((f) => (
-          <button
-            key={f}
-            onClick={() => {
-              setFilter(f);
-              if (f === "solana" && !SOLANA_PAIRS.some((p) => p.symbol === symbol)) {
-                setSymbol("SOLUSDT");
-              }
-            }}
-            className={`rounded-lg px-4 py-1.5 text-xs font-medium transition-colors ${
-              filter === f
-                ? "bg-gold text-black"
-                : "border border-zinc-800 text-zinc-400 hover:text-white"
-            }`}
-          >
-            {f === "all" ? "Todos" : "Solana"}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {visibleTickers.map((t) => (
-          <button
-            key={t.pair}
-            onClick={() => setSymbol(t.pair)}
-            className={`rounded-xl border p-4 text-left transition-colors ${
-              symbol === t.pair
-                ? "border-gold/50 bg-gold/5"
-                : "border-zinc-800 bg-zinc-950/80 hover:border-zinc-700"
-            }`}
-          >
-            <div className="text-xs font-medium text-zinc-500">{formatPair(t.pair)}</div>
-            <div className="mt-1 text-lg font-bold text-white">
-              ${t.price.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+        {/* Live Chart Container */}
+        <div className="xl:col-span-8 flex flex-col rounded-2xl border border-gold/20 bg-zinc-950/80 backdrop-blur-md shadow-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-gold animate-ping" />
+              <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+                Gráfico de Velas Japonesas - {formatPair(selectedSymbol)}
+              </h2>
             </div>
-            <div className={`text-xs font-medium ${t.change >= 0 ? "text-green-500" : "text-red-500"}`}>
-              {t.change >= 0 ? "+" : ""}
-              {t.change.toFixed(2)}%
-            </div>
-          </button>
-        ))}
-      </div>
+          </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex flex-wrap gap-1 rounded-lg border border-zinc-800 bg-zinc-950/80 p-1">
-          {visiblePairs.map((p) => (
-            <button
-              key={p.symbol}
-              onClick={() => setSymbol(p.symbol)}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                symbol === p.symbol ? "bg-gold text-black" : "text-zinc-400 hover:text-white"
-              }`}
-            >
-              {p.base}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-950/80 p-1">
-          {BINANCE_INTERVALS.map((tf) => (
-            <button
-              key={tf.value}
-              onClick={() => setTimeframe(tf.value)}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                timeframe === tf.value ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-white"
-              }`}
-            >
-              {tf.label}
-            </button>
-          ))}
+          <LiveChart symbol={selectedSymbol} interval="1m" height={540} />
         </div>
       </div>
-
-      {loading ? (
-        <div className="flex h-[480px] items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950/80 text-zinc-500">
-          Cargando gráfica de Binance...
-        </div>
-      ) : (
-        <MarketChart data={klines} symbol={formatPair(symbol)} />
-      )}
     </div>
   );
 }
