@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { api, BrokerAccountPublic, BrokerStatus } from "@/lib/api";
-import { getUser } from "@/lib/auth";
+import { toast } from "@/lib/toast";
 
 const STEPS: Record<string, string[]> = {
   binance: [
@@ -54,6 +54,10 @@ function BrokerCard({
 }) {
   const showDetails = !connected || expanded;
 
+  useEffect(() => {
+    if (error) toast.error(error, name);
+  }, [error, name]);
+
   return (
     <div className="overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950">
       <button
@@ -86,11 +90,6 @@ function BrokerCard({
       {showDetails && (expanded || !connected) && (
         <div className="border-t border-zinc-800 bg-black/40 px-4 py-3">
           {message && <p className="mb-2 text-xs text-zinc-400">{message}</p>}
-          {error && (
-            <div className="mb-3 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-              {error}
-            </div>
-          )}
           {!connected && (
             <>
               <ol className="mb-3 list-decimal space-y-1 pl-4 text-xs text-zinc-400">
@@ -115,7 +114,6 @@ interface BrokerConnectionsProps {
 }
 
 function BrokerConnectionsInner({ streamConnected, streamError }: BrokerConnectionsProps) {
-  const userId = getUser()?.id;
   const [brokers, setBrokers] = useState<BrokerStatus[]>([]);
   const [accounts, setAccounts] = useState<BrokerAccountPublic[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -124,16 +122,13 @@ function BrokerConnectionsInner({ streamConnected, streamError }: BrokerConnecti
   const mountedRef = useRef(true);
   const autoExpandedRef = useRef(false);
 
-  const checkStatus = useCallback(
-    async (silent = false) => {
-      if (!silent) setChecking(true);
+  const checkStatus = useCallback(async (silent = false) => {
+    if (!silent) setChecking(true);
 
-      const [brokersRes, accountsRes] = await Promise.all([
-        api.engine.brokers(),
-        userId
-          ? api.brokerAccounts.list(userId)
-          : Promise.resolve({ success: true as const, data: [] as BrokerAccountPublic[] }),
-      ]);
+    const [brokersRes, accountsRes] = await Promise.all([
+      api.engine.brokers(),
+      api.brokerAccounts.list(),
+    ]);
 
       if (!mountedRef.current) return;
 
@@ -160,9 +155,7 @@ function BrokerConnectionsInner({ streamConnected, streamError }: BrokerConnecti
       }
 
       setChecking(false);
-    },
-    [userId]
-  );
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -189,7 +182,7 @@ function BrokerConnectionsInner({ streamConnected, streamError }: BrokerConnecti
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
           Conexión de brokers
         </h2>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
-import { BINANCE_PAIRS, formatPair } from "@/lib/binance";
+import { BINANCE_PAIRS, fetchMarketKlines, formatPair } from "@/lib/binance";
 import { computeLatestIndicators, ComputedIndicators, IndicatorValues } from "@/lib/indicators";
 import { parseKlines } from "@/components/MarketChart";
 
@@ -37,17 +37,12 @@ export default function MarketsIndicatorsPanel({
   const fetchIndicators = useCallback(async () => {
     setLoadingIndicators(true);
     try {
-      const res = await fetch(
-        `/api/market/klines?symbol=${selectedSymbol}&interval=1m&limit=100`
-      );
-      if (res.ok) {
-        const raw = await res.json();
-        if (Array.isArray(raw) && raw.length) {
-          const parsed = parseKlines(raw);
-          const closes = parsed.map((k) => k.close);
-          const computed = computeLatestIndicators(closes, DEFAULT_INDICATOR_CONFIG);
-          setIndicators(computed);
-        }
+      const raw = await fetchMarketKlines(selectedSymbol, "1m", 100);
+      if (raw.length) {
+        const parsed = parseKlines(raw);
+        const closes = parsed.map((k) => k.close);
+        const computed = computeLatestIndicators(closes, DEFAULT_INDICATOR_CONFIG);
+        setIndicators(computed);
       }
     } catch {
       /* ignore */

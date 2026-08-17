@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, BrokerAccountPublic } from "@/lib/api";
 import { getUser } from "@/lib/auth";
+import { toast } from "@/lib/toast";
 
 const BROKERS = [
   { id: "binance", label: "Binance" },
@@ -21,12 +22,10 @@ function statusColor(status: string) {
 }
 
 export default function BrokerAccountsPanel() {
-  const user = getUser();
   const [accounts, setAccounts] = useState<BrokerAccountPublic[]>([]);
   const [loading, setLoading] = useState(true);
   const [testingId, setTestingId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [error, setError] = useState("");
   const [form, setForm] = useState({
     brokerId: "binance",
     accountName: "",
@@ -38,47 +37,64 @@ export default function BrokerAccountsPanel() {
   });
 
   const load = useCallback(async () => {
-    if (!user) return;
+    const current = getUser();
+    if (!current?.id) {
+      setLoading(false);
+      toast.error("Sesión no encontrada. Vuelve a iniciar sesión.");
+      return;
+    }
     setLoading(true);
-    const res = await api.brokerAccounts.list(user.id);
-    if (res.success && res.data) setAccounts(res.data);
+    const res = await api.brokerAccounts.list();
+    if (res.success && res.data) {
+      setAccounts(res.data);
+    } else {
+      toast.error(res.error || "No se pudieron cargar las cuentas");
+    }
     setLoading(false);
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
   async function handleTest(accountId: number) {
-    if (!user) return;
+    const current = getUser();
+    if (!current) return;
     setTestingId(accountId);
-    const res = await api.brokerAccounts.test(user.id, accountId);
+    const res = await api.brokerAccounts.test(current.id, accountId);
     if (res.success && res.data) {
       setAccounts((prev) =>
         prev.map((a) => (a.id === accountId ? res.data!.account : a))
       );
+      toast.success("Conexión verificada");
+    } else {
+      toast.error(res.error || "No se pudo probar la conexión");
     }
     setTestingId(null);
   }
 
   async function handlePrimary(accountId: number) {
-    if (!user) return;
-    const res = await api.brokerAccounts.setPrimary(user.id, accountId);
+    const current = getUser();
+    if (!current) return;
+    const res = await api.brokerAccounts.setPrimary(current.id, accountId);
     if (res.success) load();
+    else toast.error(res.error || "No se pudo marcar como principal");
   }
 
   async function handleDelete(accountId: number) {
-    if (!user || !confirm("¿Eliminar esta cuenta?")) return;
-    const res = await api.brokerAccounts.delete(user.id, accountId);
+    const current = getUser();
+    if (!current || !confirm("¿Eliminar esta cuenta?")) return;
+    const res = await api.brokerAccounts.delete(current.id, accountId);
     if (res.success) load();
+    else toast.error(res.error || "No se pudo eliminar la cuenta");
   }
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
-    if (!user) return;
-    setError("");
+    const current = getUser();
+    if (!current) return;
     const res = await api.brokerAccounts.create({
-      userId: user.id,
+      userId: current.id,
       brokerId: form.brokerId,
       accountName: form.accountName.trim(),
       accountType: form.accountType,
@@ -100,22 +116,23 @@ export default function BrokerAccountsPanel() {
         apiSecret: "",
         isPrimary: false,
       });
+      toast.success("Cuenta conectada");
       load();
     } else {
-      setError(res.error || "Error al crear cuenta");
+      toast.error(res.error || "Error al crear cuenta");
     }
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
           Cuentas conectadas
         </h2>
         <button
           type="button"
           onClick={() => setShowForm((v) => !v)}
-          className="text-xs text-gold hover:underline"
+          className="shrink-0 text-xs text-gold hover:underline"
         >
           {showForm ? "Cancelar" : "+ Conectar cuenta"}
         </button>
@@ -126,7 +143,6 @@ export default function BrokerAccountsPanel() {
           onSubmit={handleCreate}
           className="space-y-3 rounded-xl border border-zinc-800 bg-zinc-950 p-4"
         >
-          {error && <p className="text-xs text-red-400">{error}</p>}
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs text-zinc-500">Broker</label>
@@ -183,7 +199,7 @@ export default function BrokerAccountsPanel() {
           </div>
           <button
             type="submit"
-            className="rounded-lg bg-gold/20 px-4 py-2 text-sm font-medium text-gold"
+            className="w-full rounded-lg bg-gold/20 px-4 py-2 text-sm font-medium text-gold sm:w-auto"
           >
             Guardar
           </button>
@@ -194,17 +210,17 @@ export default function BrokerAccountsPanel() {
         <p className="text-sm text-zinc-500">Cargando...</p>
       ) : accounts.length === 0 ? (
         <p className="rounded-lg border border-zinc-800 px-4 py-6 text-center text-sm text-zinc-500">
-          Sin cuentas
+          Sin cuentas. Conecta un broker para operar.
         </p>
       ) : (
         <div className="space-y-2">
           {accounts.map((acc) => (
             <div
               key={acc.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3"
+              className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
             >
-              <div>
-                <div className="text-sm font-medium text-white">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-white">
                   {acc.accountName}
                   {acc.isPrimary && <span className="ml-2 text-xs text-gold">principal</span>}
                 </div>
@@ -213,17 +229,17 @@ export default function BrokerAccountsPanel() {
                   <span className={statusColor(acc.status)}>{acc.status}</span>
                 </div>
                 {acc.lastError && (
-                  <p className="mt-1 text-xs text-red-400">{acc.lastError}</p>
+                  <p className="mt-1 break-words text-xs text-red-400">{acc.lastError}</p>
                 )}
               </div>
-              <div className="flex gap-2 text-xs">
+              <div className="flex flex-wrap gap-3 text-xs sm:justify-end">
                 <button
                   type="button"
                   onClick={() => handleTest(acc.id)}
                   disabled={testingId === acc.id}
                   className="text-gold"
                 >
-                  Probar
+                  {testingId === acc.id ? "Probando..." : "Probar"}
                 </button>
                 {!acc.isPrimary && (
                   <button type="button" onClick={() => handlePrimary(acc.id)} className="text-zinc-400">

@@ -6,6 +6,13 @@ export interface IndicatorValues {
   levels?: { label: string; price: number; type: "support" | "resistance" }[];
 }
 
+export const DEFAULT_INDICATOR_VALUES: IndicatorValues = {
+  rsi: { period: 14, overbought: 70, oversold: 30 },
+  ema: { fast: 20, slow: 50 },
+  sma: { period: 20 },
+  macd: { fast: 12, slow: 26, signal: 9 },
+};
+
 export interface ComputedIndicators {
   rsi: number | null;
   emaFast: number | null;
@@ -119,17 +126,17 @@ export function computeLatestIndicators(
 
   if (config.rsi) {
     const rsi = calculateRSI(closes, config.rsi.period);
-    result.rsi = rsi[rsi.length - 1];
+    result.rsi = rsi[rsi.length - 1] ?? null;
   }
   if (config.ema) {
     const fast = calculateEMA(closes, config.ema.fast);
     const slow = calculateEMA(closes, config.ema.slow);
-    result.emaFast = fast[fast.length - 1];
-    result.emaSlow = slow[slow.length - 1];
+    result.emaFast = fast[fast.length - 1] ?? null;
+    result.emaSlow = slow[slow.length - 1] ?? null;
   }
   if (config.sma) {
     const sma = calculateSMA(closes, config.sma.period);
-    result.sma = sma[sma.length - 1];
+    result.sma = sma[sma.length - 1] ?? null;
   }
   if (config.macd) {
     const { macd, signal, histogram } = calculateMACD(
@@ -141,7 +148,7 @@ export function computeLatestIndicators(
     const m = macd[macd.length - 1];
     const s = signal[signal.length - 1];
     const h = histogram[histogram.length - 1];
-    if (m !== null && s !== null && h !== null) {
+    if (m != null && s != null && h != null) {
       result.macd = { macd: m, signal: s, histogram: h };
     }
   }

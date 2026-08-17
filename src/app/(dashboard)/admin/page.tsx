@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/auth";
+import { toast } from "@/lib/toast";
 import { api, AdminUser, AdminStats } from "@/lib/api";
 
 export default function AdminPage() {
@@ -13,7 +14,6 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (!user || user.role !== "admin") {
@@ -44,14 +44,14 @@ export default function AdminPage() {
 
   async function handlePromote(u: AdminUser) {
     const res = await api.admin.promote(u.id);
-    setMessage(res.success ? `${u.username} es admin` : res.error || "Error");
+    toast[res.success ? "success" : "error"](res.success ? `${u.username} es admin` : res.error || "Error");
     loadUsers();
     loadStats();
   }
 
   async function handleDemote(u: AdminUser) {
     const res = await api.admin.demote(u.id);
-    setMessage(res.success ? `${u.username} es usuario` : res.error || "Error");
+    toast[res.success ? "success" : "error"](res.success ? `${u.username} es usuario` : res.error || "Error");
     loadUsers();
     loadStats();
   }
@@ -59,7 +59,7 @@ export default function AdminPage() {
   async function handleDelete(u: AdminUser) {
     if (!confirm(`¿Eliminar a "${u.username}"?`)) return;
     const res = await api.admin.deleteUser(u.id);
-    setMessage(res.success ? "Usuario eliminado" : res.error || "Error");
+    toast[res.success ? "success" : "error"](res.success ? "Usuario eliminado" : res.error || "Error");
     loadUsers();
     loadStats();
   }
@@ -67,15 +67,9 @@ export default function AdminPage() {
   if (!user || user.role !== "admin") return null;
 
   return (
-    <div className="w-full p-6">
+    <div className="w-full min-w-0 p-4 sm:p-6">
       <h1 className="mb-1 text-xl font-bold text-white">Administración</h1>
       <p className="mb-6 text-sm text-zinc-500">Usuarios del sistema</p>
-
-      {message && (
-        <div className="mb-4 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm text-zinc-300">
-          {message}
-        </div>
-      )}
 
       {stats && (
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -99,14 +93,14 @@ export default function AdminPage() {
       )}
 
       <div className="rounded-xl border border-zinc-800 bg-zinc-950">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+        <div className="flex flex-col gap-3 border-b border-zinc-800 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <h2 className="font-semibold text-white">Usuarios</h2>
           <input
             type="text"
             placeholder="Buscar..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-48 rounded border border-zinc-700 bg-black px-3 py-1.5 text-sm text-white outline-none focus:border-gold"
+            className="w-full rounded border border-zinc-700 bg-black px-3 py-1.5 text-sm text-white outline-none focus:border-gold sm:w-48"
           />
         </div>
 
@@ -115,7 +109,8 @@ export default function AdminPage() {
         ) : users.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-zinc-500">Sin usuarios</p>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[32rem] text-sm">
             <thead>
               <tr className="border-b border-zinc-800 text-left text-xs text-zinc-500">
                 <th className="px-5 py-2">Usuario</th>
@@ -169,6 +164,7 @@ export default function AdminPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

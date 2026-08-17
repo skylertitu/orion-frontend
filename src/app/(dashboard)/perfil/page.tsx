@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { getUser, updateUserInSession, User } from "@/lib/auth";
+import { isPasswordStrong, PASSWORD_POLICY_MESSAGE } from "@/lib/passwordPolicy";
+import PasswordStrengthHints from "@/components/PasswordStrengthHints";
+import { toast } from "@/lib/toast";
 
 export default function PerfilPage() {
   const currentUser = getUser();
@@ -15,16 +18,12 @@ export default function PerfilPage() {
   const [country, setCountry] = useState(currentUser?.country || "Global");
   const [language, setLanguage] = useState(currentUser?.language || "es");
   const [timezone, setTimezone] = useState(currentUser?.timezone || "UTC-5");
-  const [profileMessage, setProfileMessage] = useState("");
-  const [profileError, setProfileError] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
 
   // Password Change Form States
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [passMessage, setPassMessage] = useState("");
-  const [passError, setPassError] = useState("");
   const [changingPass, setChangingPass] = useState(false);
 
   // Load fresh profile from backend on mount
@@ -47,8 +46,6 @@ export default function PerfilPage() {
 
   async function handleProfileSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setProfileMessage("");
-    setProfileError("");
     setSavingProfile(true);
 
     const res = await api.auth.updateProfile({
@@ -63,9 +60,9 @@ export default function PerfilPage() {
     if (res.success && res.data) {
       setProfile(res.data);
       updateUserInSession(res.data);
-      setProfileMessage("Perfil actualizado correctamente");
+      toast.success("Perfil actualizado correctamente");
     } else {
-      setProfileError(res.error || "Error al actualizar perfil");
+      toast.error(res.error || "Error al actualizar perfil");
     }
 
     setSavingProfile(false);
@@ -73,16 +70,14 @@ export default function PerfilPage() {
 
   async function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setPassMessage("");
-    setPassError("");
 
-    if (newPassword.length < 8) {
-      setPassError("La nueva contraseña debe tener al menos 8 caracteres");
+    if (!isPasswordStrong(newPassword)) {
+      toast.error(PASSWORD_POLICY_MESSAGE);
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setPassError("Las contraseñas no coinciden");
+      toast.error("Las contraseñas no coinciden");
       return;
     }
 
@@ -91,19 +86,19 @@ export default function PerfilPage() {
     const res = await api.auth.changePassword(currentPassword, newPassword);
 
     if (res.success) {
-      setPassMessage("Contraseña modificada con éxito");
+      toast.success("Contraseña modificada con éxito");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } else {
-      setPassError(res.error || "Error al modificar la contraseña");
+      toast.error(res.error || "Error al modificar la contraseña");
     }
 
     setChangingPass(false);
   }
 
   return (
-    <div className="flex w-full flex-col gap-6 p-6 bg-[#07090e] text-white min-h-screen font-sans">
+    <div className="flex min-h-screen w-full min-w-0 flex-col gap-6 bg-[#07090e] p-4 text-white font-sans sm:p-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-[#0a0d16] p-4 backdrop-blur-md">
         <div>
@@ -170,17 +165,6 @@ export default function PerfilPage() {
             <h3 className="text-sm font-bold text-white uppercase tracking-wider border-b border-zinc-800/60 pb-3">
               Información Personal & Regional
             </h3>
-
-            {profileMessage && (
-              <div className="rounded-xl border border-gold/30 bg-gold/10 p-3 text-xs text-gold font-semibold">
-                {profileMessage}
-              </div>
-            )}
-            {profileError && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400 font-semibold">
-                {profileError}
-              </div>
-            )}
 
             <form onSubmit={handleProfileSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -280,17 +264,6 @@ export default function PerfilPage() {
               Seguridad & Cambio de Contraseña
             </h3>
 
-            {passMessage && (
-              <div className="rounded-xl border border-gold/30 bg-gold/10 p-3 text-xs text-gold font-semibold">
-                {passMessage}
-              </div>
-            )}
-            {passError && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400 font-semibold">
-                {passError}
-              </div>
-            )}
-
             <form onSubmit={handlePasswordSubmit} className="space-y-4">
               <div>
                 <label className="mb-1 block text-xs text-zinc-400 font-medium">Contraseña Actual</label>
@@ -330,10 +303,12 @@ export default function PerfilPage() {
                 </div>
               </div>
 
+              <PasswordStrengthHints password={newPassword} />
+
               <div className="flex justify-end pt-2">
                 <button
                   type="submit"
-                  disabled={changingPass}
+                  disabled={changingPass || !isPasswordStrong(newPassword) || newPassword !== confirmPassword}
                   className="rounded-xl bg-gold px-5 py-2.5 text-xs font-bold text-black hover:bg-gold-light transition-all shadow-md shadow-gold/10 disabled:opacity-50"
                 >
                   {changingPass ? "Actualizando..." : "Cambiar Contraseña"}

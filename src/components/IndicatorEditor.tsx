@@ -1,22 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { IndicatorValues } from "@/lib/indicators";
-
-export const DEFAULT_INDICATOR_VALUES: IndicatorValues = {
-  rsi: { period: 14, overbought: 70, oversold: 30 },
-  ema: { fast: 20, slow: 50 },
-  sma: { period: 20 },
-  macd: { fast: 12, slow: 26, signal: 9 },
-};
+import { DEFAULT_INDICATOR_VALUES, type IndicatorValues } from "@/lib/indicators";
+import { DEFAULT_TOGGLES, type IndicatorToggles } from "@/lib/indicatorConfig";
 
 interface IndicatorEditorProps {
   values: IndicatorValues;
   onChange: (newValues: IndicatorValues) => void;
+  toggles?: IndicatorToggles;
+  onTogglesChange?: (next: IndicatorToggles) => void;
+  compact?: boolean;
 }
 
-export default function IndicatorEditor({ values, onChange }: IndicatorEditorProps) {
-  const [editingKey, setEditingKey] = useState<string | null>(null);
+export { DEFAULT_INDICATOR_VALUES };
+
+export default function IndicatorEditor({
+  values,
+  onChange,
+  toggles = DEFAULT_TOGGLES,
+  onTogglesChange,
+  compact = false,
+}: IndicatorEditorProps) {
+  const flip = (key: keyof IndicatorToggles) => {
+    onTogglesChange?.({ ...toggles, [key]: !toggles[key] });
+  };
 
   const updateRsi = (field: keyof NonNullable<IndicatorValues["rsi"]>, val: number) => {
     onChange({
@@ -57,6 +63,7 @@ export default function IndicatorEditor({ values, onChange }: IndicatorEditorPro
 
   const resetAll = () => {
     onChange(DEFAULT_INDICATOR_VALUES);
+    onTogglesChange?.(DEFAULT_TOGGLES);
   };
 
   const rsi = values.rsi || DEFAULT_INDICATOR_VALUES.rsi!;
@@ -65,11 +72,19 @@ export default function IndicatorEditor({ values, onChange }: IndicatorEditorPro
   const sma = values.sma || DEFAULT_INDICATOR_VALUES.sma!;
 
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border border-zinc-800/80 bg-zinc-950/80 p-5 backdrop-blur-md shadow-xl text-white">
-      <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+    <div
+      className={`flex flex-col rounded-2xl border border-zinc-800/80 bg-zinc-950/80 text-white shadow-xl backdrop-blur-md ${
+        compact ? "gap-3 p-3" : "gap-5 p-5"
+      }`}
+    >
+      <div className={`flex items-center justify-between border-b border-zinc-800 ${compact ? "pb-2" : "pb-3"}`}>
         <div>
-          <h2 className="text-base font-bold text-white">Editor de Indicadores Técnicos</h2>
-          <p className="text-xs text-zinc-400">Configura y ajusta los parámetros de cálculo</p>
+          <h2 className={`font-bold text-white ${compact ? "text-sm" : "text-base"}`}>
+            {compact ? "Indicadores" : "Editor de Indicadores Técnicos"}
+          </h2>
+          {!compact && (
+            <p className="text-xs text-zinc-400">Configura y ajusta los parámetros de cálculo</p>
+          )}
         </div>
 
         <button
@@ -77,18 +92,16 @@ export default function IndicatorEditor({ values, onChange }: IndicatorEditorPro
           onClick={resetAll}
           className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
         >
-          Valores por defecto
+          Reset
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className={`grid gap-3 ${compact ? "grid-cols-1" : "sm:grid-cols-2 gap-4"}`}>
         {/* RSI Config */}
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-emerald-400">RSI (Relative Strength Index)</span>
-            <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
-              Activo
-            </span>
+            <span className={`font-bold text-emerald-400 ${compact ? "text-xs" : "text-sm"}`}>RSI</span>
+            <ToggleChip active={toggles.rsi} onClick={() => flip("rsi")} />
           </div>
 
           <div className="grid grid-cols-3 gap-2">
@@ -131,10 +144,8 @@ export default function IndicatorEditor({ values, onChange }: IndicatorEditorPro
         {/* EMA Config */}
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-blue-400">EMA (Media Móvil Exponencial)</span>
-            <span className="rounded bg-blue-500/20 px-2 py-0.5 text-[10px] font-mono text-blue-300">
-              Activo
-            </span>
+            <span className={`font-bold text-blue-400 ${compact ? "text-xs" : "text-sm"}`}>EMA</span>
+            <ToggleChip active={toggles.ema} onClick={() => flip("ema")} />
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -166,10 +177,8 @@ export default function IndicatorEditor({ values, onChange }: IndicatorEditorPro
         {/* MACD Config */}
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-purple-400">MACD (Convergence Divergence)</span>
-            <span className="rounded bg-purple-500/20 px-2 py-0.5 text-[10px] font-mono text-purple-300">
-              Activo
-            </span>
+            <span className={`font-bold text-purple-400 ${compact ? "text-xs" : "text-sm"}`}>MACD</span>
+            <ToggleChip active={toggles.macd} onClick={() => flip("macd")} />
           </div>
 
           <div className="grid grid-cols-3 gap-2">
@@ -212,10 +221,8 @@ export default function IndicatorEditor({ values, onChange }: IndicatorEditorPro
         {/* SMA Config */}
         <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-amber-400">SMA (Media Móvil Simple)</span>
-            <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-mono text-amber-300">
-              Activo
-            </span>
+            <span className={`font-bold text-amber-400 ${compact ? "text-xs" : "text-sm"}`}>SMA</span>
+            <ToggleChip active={toggles.sma} onClick={() => flip("sma")} />
           </div>
 
           <div>
@@ -232,5 +239,19 @@ export default function IndicatorEditor({ values, onChange }: IndicatorEditorPro
         </div>
       </div>
     </div>
+  );
+}
+
+function ToggleChip({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded px-2 py-0.5 text-[10px] font-mono font-bold ${
+        active ? "bg-emerald-500/20 text-emerald-300" : "bg-zinc-800 text-zinc-500"
+      }`}
+    >
+      {active ? "En gráfica" : "Oculto"}
+    </button>
   );
 }

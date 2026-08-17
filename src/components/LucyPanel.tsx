@@ -23,26 +23,35 @@ export default function LucyPanel() {
   const [loading, setLoading] = useState(false);
   const [lucyStatus, setLucyStatus] = useState<{
     connected: boolean;
-    latencyMs: number;
-    activeStrategy: string;
-    autoTrading: boolean;
+    pending: boolean;
+    reason: string;
   }>({
-    connected: true,
-    latencyMs: 18,
-    activeStrategy: "Lucy Trend-Pro AI v2.4",
-    autoTrading: true,
+    connected: false,
+    pending: true,
+    reason: "Lucy SDK/API aún no está implementada.",
   });
 
   const loadSignals = useCallback(async () => {
-    if (!user) return;
     setLoading(true);
     try {
+      const health = await api.lucy.health();
+      const data = health.data;
+      setLucyStatus({
+        connected: Boolean(data?.alive) && !data?.pending,
+        pending: Boolean(data?.pending) || data?.alive === false || !health.success,
+        reason: data?.reason || "Lucy SDK/API aún no está implementada.",
+      });
+      if (!user) return;
       const res = await api.signals.list(user.id, { source: "lucy", limit: 12 });
       if (res.success && res.data) {
         setSignals(res.data as SignalRow[]);
       }
     } catch {
-      /* ignore */
+      setLucyStatus({
+        connected: false,
+        pending: true,
+        reason: "No se pudo consultar el estado de Lucy.",
+      });
     } finally {
       setLoading(false);
     }
@@ -56,9 +65,10 @@ export default function LucyPanel() {
 
   const avgConfidence = signals.length
     ? Math.round(
-        (signals.reduce((acc, s) => acc + (s.confidence || 0), 0) / signals.length) * 100
+        (signals.reduce((acc, s) => acc + (s.confidence || 0), 0) / signals.length) *
+          (signals[0]?.confidence <= 1 ? 100 : 1)
       )
-    : 87;
+    : 0;
 
   return (
     <div className="flex flex-col h-full rounded-2xl border border-purple-500/20 bg-zinc-950/80 backdrop-blur-md shadow-xl overflow-hidden">
@@ -70,16 +80,20 @@ export default function LucyPanel() {
               <svg className="h-6 w-6 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
-              <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 border-2 border-zinc-950" />
+              <span className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-zinc-950 ${lucyStatus.connected ? "bg-emerald-500" : "bg-amber-500"}`} />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-white">Conexión Lucy IA</h2>
-                <span className="rounded-full bg-purple-500/20 px-2 py-0.5 text-[10px] font-semibold text-purple-300 border border-purple-500/30">
-                  ONLINE
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold border ${
+                  lucyStatus.connected
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                    : "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                }`}>
+                  {lucyStatus.connected ? "ONLINE" : "PENDIENTE"}
                 </span>
               </div>
-              <p className="text-xs text-purple-300/70">{lucyStatus.activeStrategy}</p>
+              <p className="text-xs text-purple-300/70">{lucyStatus.reason}</p>
             </div>
           </div>
 
@@ -99,16 +113,16 @@ export default function LucyPanel() {
         {/* Stats Grid */}
         <div className="mt-4 grid grid-cols-3 gap-2">
           <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-2.5 text-center">
-            <span className="block text-[10px] uppercase tracking-wider text-zinc-400">Latencia</span>
-            <span className="font-mono text-xs font-bold text-emerald-400">{lucyStatus.latencyMs}ms</span>
+            <span className="block text-[10px] uppercase tracking-wider text-zinc-400">API</span>
+            <span className="font-mono text-xs font-bold text-zinc-300">{lucyStatus.connected ? "ok" : "off"}</span>
           </div>
           <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-2.5 text-center">
-            <span className="block text-[10px] uppercase tracking-wider text-zinc-400">Precisión IA</span>
-            <span className="font-mono text-xs font-bold text-purple-300">{avgConfidence}%</span>
+            <span className="block text-[10px] uppercase tracking-wider text-zinc-400">Confianza</span>
+            <span className="font-mono text-xs font-bold text-purple-300">{signals.length ? `${avgConfidence}%` : "—"}</span>
           </div>
           <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/60 p-2.5 text-center">
             <span className="block text-[10px] uppercase tracking-wider text-zinc-400">Auto-Trading</span>
-            <span className="font-mono text-xs font-bold text-emerald-400">ACTIVO</span>
+            <span className="font-mono text-xs font-bold text-zinc-400">OFF</span>
           </div>
         </div>
       </div>
@@ -130,7 +144,7 @@ export default function LucyPanel() {
             <svg className="mb-2 h-8 w-8 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            <p className="text-xs">Esperando nuevas señales de Lucy IA...</p>
+            <p className="text-xs">No hay señales de Lucy. Eso es normal mientras la API esté pendiente.</p>
           </div>
         ) : (
           signals.map((s) => {

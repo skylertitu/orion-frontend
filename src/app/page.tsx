@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { api } from "@/lib/api";
 import { setSession } from "@/lib/auth";
+import GoogleAuthButton from "@/components/GoogleAuthButton";
+import { toast } from "@/lib/toast";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,14 +14,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    setSuccess("");
     setLoading(true);
 
     const res = await api.auth.login(email, password, rememberMe);
@@ -27,10 +25,10 @@ export default function LoginPage() {
     if (res.success && res.data) {
       const { token, ...user } = res.data;
       setSession({ user, token }, rememberMe);
-      setSuccess(res.message || "Inicio de sesión exitoso");
+      toast.success(res.message || "Inicio de sesión exitoso");
       router.push("/dashboard");
     } else {
-      setError(res.error || "Error al iniciar sesión");
+      toast.error(res.error || "Error al iniciar sesión");
     }
 
     setLoading(false);
@@ -120,23 +118,6 @@ export default function LoginPage() {
             <p className="text-xs text-zinc-400 mt-1">Ingresa tus credenciales para continuar</p>
           </div>
 
-          {error && (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs text-red-400 flex items-center gap-2">
-              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span>{error}</span>
-            </div>
-          )}
-          {success && (
-            <div className="rounded-xl border border-gold/30 bg-gold/10 p-3.5 text-xs text-gold flex items-center gap-2">
-              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <span>{success}</span>
-            </div>
-          )}
-
           {/* Form Fields */}
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div>
@@ -214,10 +195,16 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Bottom Demo Card */}
-          <div className="rounded-xl border border-zinc-800/80 bg-[#111726]/60 p-4 text-[11px] text-zinc-400">
-            <span className="font-bold text-white">Demo:</span> usa cualquier email para acceder. Incluye "admin" para rol admin.
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-zinc-800" />
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500">o</span>
+            <div className="h-px flex-1 bg-zinc-800" />
           </div>
+
+          <GoogleAuthButton
+            rememberMe={rememberMe}
+            onSuccess={() => router.push("/dashboard")}
+          />
         </div>
 
         {/* Footer */}

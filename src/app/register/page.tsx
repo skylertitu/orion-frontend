@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
 import { api } from "@/lib/api";
 import { setSession } from "@/lib/auth";
+import GoogleAuthButton from "@/components/GoogleAuthButton";
+import PasswordStrengthHints from "@/components/PasswordStrengthHints";
+import { isPasswordStrong, PASSWORD_POLICY_MESSAGE } from "@/lib/passwordPolicy";
+import { toast } from "@/lib/toast";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -16,57 +20,26 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Password rules validation
-  const rules = useMemo(() => {
-    return {
-      minLength: password.length >= 8,
-      hasUpperLower: /[a-z]/.test(password) && /[A-Z]/.test(password),
-      hasNumber: /\d/.test(password),
-      hasSymbol: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password),
-    };
-  }, [password]);
-
-  const passedRulesCount = useMemo(() => {
-    return Object.values(rules).filter(Boolean).length;
-  }, [rules]);
-
-  const isPasswordValid = passedRulesCount === 4;
-  const passwordsMatch = password && confirmPassword && password === confirmPassword;
-
-  let strengthLabel = "Débil";
-  let strengthColor = "bg-red-500";
-  if (passedRulesCount === 2) {
-    strengthLabel = "Regular";
-    strengthColor = "bg-amber-500";
-  } else if (passedRulesCount === 3) {
-    strengthLabel = "Buena";
-    strengthColor = "bg-blue-500";
-  } else if (passedRulesCount === 4) {
-    strengthLabel = "Excelente";
-    strengthColor = "bg-gold";
-  }
+  const isPasswordValid = isPasswordStrong(password);
+  const passwordsMatch = Boolean(password && confirmPassword && password === confirmPassword);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    setSuccess("");
 
     if (!isPasswordValid) {
-      setError("La contraseña debe cumplir las 4 reglas de seguridad.");
+      toast.error(PASSWORD_POLICY_MESSAGE);
       return;
     }
 
     if (!passwordsMatch) {
-      setError("Las contraseñas no coinciden.");
+      toast.error("Las contraseñas no coinciden.");
       return;
     }
 
     if (!termsAccepted) {
-      setError("Debes aceptar los Términos y Condiciones.");
+      toast.error("Debes aceptar los Términos y Condiciones.");
       return;
     }
 
@@ -84,10 +57,10 @@ export default function RegisterPage() {
     if (res.success && res.data) {
       const { token, ...user } = res.data;
       setSession({ user, token }, true);
-      setSuccess(res.message || "Cuenta creada correctamente");
+      toast.success(res.message || "Cuenta creada correctamente");
       router.push("/dashboard");
     } else {
-      setError(res.error || "Error al registrar usuario");
+      toast.error(res.error || "Error al registrar usuario");
     }
 
     setLoading(false);
@@ -176,23 +149,6 @@ export default function RegisterPage() {
             <h2 className="text-2xl font-bold tracking-tight text-white">Crear cuenta</h2>
             <p className="text-xs text-zinc-400 mt-1">Completa el formulario para comenzar</p>
           </div>
-
-          {error && (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs text-red-400 flex items-center gap-2">
-              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span>{error}</span>
-            </div>
-          )}
-          {success && (
-            <div className="rounded-xl border border-gold/30 bg-gold/10 p-3.5 text-xs text-gold flex items-center gap-2">
-              <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <span>{success}</span>
-            </div>
-          )}
 
           {/* Form Fields */}
           <form className="space-y-3.5" onSubmit={handleSubmit}>
@@ -293,37 +249,8 @@ export default function RegisterPage() {
               )}
             </div>
 
-            {/* Strength Bar */}
-            {password.length > 0 && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-[10px] font-medium text-zinc-400">
-                  <span>Fuerza de la contraseña:</span>
-                  <span className="font-bold text-white">{strengthLabel}</span>
-                </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
-                  <div
-                    className={`h-full rounded-full ${strengthColor} transition-all duration-300`}
-                    style={{ width: `${(passedRulesCount / 4) * 100}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Rules Checklist */}
-            <div className="rounded-xl border border-zinc-800 bg-[#111726]/60 p-2.5 space-y-1 text-[11px]">
-              <div className={`flex items-center gap-2 ${rules.minLength ? "text-gold font-bold" : "text-zinc-500"}`}>
-                <span>{rules.minLength ? "✓" : "•"}</span> Mínimo 8 caracteres
-              </div>
-              <div className={`flex items-center gap-2 ${rules.hasUpperLower ? "text-gold font-bold" : "text-zinc-500"}`}>
-                <span>{rules.hasUpperLower ? "✓" : "•"}</span> Mayúsculas y minúsculas (a-Z)
-              </div>
-              <div className={`flex items-center gap-2 ${rules.hasNumber ? "text-gold font-bold" : "text-zinc-500"}`}>
-                <span>{rules.hasNumber ? "✓" : "•"}</span> Al menos un número (0-9)
-              </div>
-              <div className={`flex items-center gap-2 ${rules.hasSymbol ? "text-gold font-bold" : "text-zinc-500"}`}>
-                <span>{rules.hasSymbol ? "✓" : "•"}</span> Al menos un símbolo (!@#$%^&*)
-              </div>
-            </div>
+            {/* Strength + rules */}
+            <PasswordStrengthHints password={password} />
 
             {/* Terms Checkbox */}
             <div className="flex items-center gap-2 pt-1">
@@ -349,10 +276,16 @@ export default function RegisterPage() {
             </button>
           </form>
 
-          {/* Bottom Demo Card */}
-          <div className="rounded-xl border border-zinc-800/80 bg-[#111726]/60 p-4 text-[11px] text-zinc-400">
-            <span className="font-bold text-white">Demo:</span> usa cualquier email para acceder. Incluye "admin" para rol admin.
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-zinc-800" />
+            <span className="text-[10px] uppercase tracking-wider text-zinc-500">o</span>
+            <div className="h-px flex-1 bg-zinc-800" />
           </div>
+
+          <GoogleAuthButton
+            rememberMe
+            onSuccess={() => router.push("/dashboard")}
+          />
         </div>
 
         {/* Footer */}

@@ -3,30 +3,32 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
-  const [resetToken, setResetToken] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [resetUrl, setResetUrl] = useState<string | null>(null);
+  const [googleAccount, setGoogleAccount] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    setMessage("");
-    setResetToken(null);
+    setResetUrl(null);
+    setGoogleAccount(false);
     setLoading(true);
 
-    const res = await api.auth.forgotPassword(email);
+    const res = await api.auth.forgotPassword(email.trim());
 
     if (res.success) {
-      setMessage(res.message || "Instrucciones enviadas correctamente");
-      if (res.data?.resetToken) {
-        setResetToken(res.data.resetToken);
+      toast.success("Pide un enlace nuevo aquí y ábrelo en AutoTrade. No uses la página blanca de Firebase.");
+      setGoogleAccount(Boolean(res.data?.googleAccount));
+      if (res.data?.resetUrl) {
+        setResetUrl(res.data.resetUrl);
+      } else if (res.data?.resetToken) {
+        setResetUrl(`/reset-password?token=${res.data.resetToken}`);
       }
     } else {
-      setError(res.error || "Error al solicitar recuperación");
+      toast.error(res.error || "Error al solicitar recuperación");
     }
 
     setLoading(false);
@@ -35,7 +37,6 @@ export default function ForgotPasswordPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-[#07090e] p-6 text-white font-sans">
       <div className="w-full max-w-md space-y-6">
-        {/* Top Logo */}
         <div className="flex justify-center">
           <Link href="/" className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gold text-black font-black text-lg shadow-xl shadow-gold/20">
@@ -45,37 +46,29 @@ export default function ForgotPasswordPage() {
           </Link>
         </div>
 
-        {/* Card */}
         <div className="rounded-3xl border border-zinc-800 bg-[#0a0d16] p-8 shadow-2xl space-y-5">
           <div>
             <h1 className="text-2xl font-bold text-white tracking-tight">Recuperar Contraseña</h1>
             <p className="text-xs text-zinc-400 mt-1">
-              Ingresa tu correo registrado y te enviaremos las instrucciones para restablecer tu acceso.
+              El correo de Gmail abre Firebase, no AutoTrade. Gmail suele invalidar ese enlace al
+              escanearlo. Usa el botón de esta pantalla.
             </p>
           </div>
 
-          {error && (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs text-red-400">
-              {error}
-            </div>
-          )}
-
-          {message && (
-            <div className="rounded-xl border border-gold/30 bg-gold/10 p-3.5 text-xs text-gold space-y-2">
-              <p className="font-semibold">{message}</p>
-              {resetToken && (
-                <div className="pt-2 border-t border-gold/20">
-                  <p className="text-[11px] text-zinc-300 mb-1 font-mono">Token de recuperación (Demo/Testing):</p>
-                  <code className="block break-all rounded bg-black/60 p-2 text-[10px] text-gold font-mono">
-                    {resetToken}
-                  </code>
-                  <Link
-                    href={`/reset-password?token=${resetToken}`}
-                    className="inline-block mt-2 rounded-lg bg-gold px-3 py-1.5 text-xs font-bold text-black hover:bg-gold-light"
-                  >
-                    Restablecer clave con este Token →
-                  </Link>
-                </div>
+          {(resetUrl || googleAccount) && (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3.5 text-xs text-zinc-300 space-y-2">
+              {googleAccount && (
+                <p>
+                  Esta cuenta también puede entrar con <strong>Continuar con Google</strong>.
+                </p>
+              )}
+              {resetUrl && (
+                <Link
+                  href={resetUrl}
+                  className="inline-block rounded-lg bg-gold px-3 py-1.5 text-xs font-bold text-black hover:bg-gold-light"
+                >
+                  Restablecer contraseña en AutoTrade →
+                </Link>
               )}
             </div>
           )}
@@ -98,7 +91,7 @@ export default function ForgotPasswordPage() {
               disabled={loading}
               className="w-full rounded-xl bg-gold hover:bg-gold-light py-3 text-xs font-bold text-black transition-all shadow-lg shadow-gold/20 disabled:opacity-50"
             >
-              {loading ? "Enviando..." : "Enviar enlace de recuperación"}
+              {loading ? "Generando enlace..." : "Generar enlace de AutoTrade"}
             </button>
           </form>
 

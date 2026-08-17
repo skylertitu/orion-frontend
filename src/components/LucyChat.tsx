@@ -16,7 +16,7 @@ export default function LucyChat() {
     {
       id: "1",
       sender: "lucy",
-      text: `Hola ${user?.username || "Trader"}, soy Lucy, tu asistente IA de trading. ¿En qué puedo ayudarte hoy? Puedes pedirme análisis de mercado, recomendaciones de pares o estado del RSI.`,
+      text: `Hola ${user?.username || "Trader"}. Lucy todavía no está conectada: no hay SDK/API de IA. Este chat no da señales ni precios inventados.`,
       time: new Date().toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
@@ -24,10 +24,9 @@ export default function LucyChat() {
   const [loading, setLoading] = useState(false);
 
   const quickPrompts = [
-    "¿Cuál es la tendencia de BTCUSDT?",
-    "Revisar señales de mayor probabilidad",
-    "¿Qué par recomiendas operar hoy?",
-    "Explicar configuración del RSI",
+    "¿Lucy está conectada?",
+    "¿De dónde salen las señales?",
+    "¿Puedo operar con Lucy ahora?",
   ];
 
   function handleSend(textToSend?: string) {
@@ -45,21 +44,20 @@ export default function LucyChat() {
     if (!textToSend) setInput("");
     setLoading(true);
 
-    // Simulated Intelligent Response generator based on trading context
     setTimeout(() => {
-      let responseText = "Entendido. Estoy analizando los flujos del libro de órdenes y los indicadores en tiempo real...";
       const lower = text.toLowerCase();
+      let responseText =
+        "Lucy no está conectada todavía. Cuando exista el SDK/API, este chat usará análisis real. Hasta entonces no hay recomendaciones de mercado.";
 
-      if (lower.includes("btc") || lower.includes("tendencia")) {
-        responseText = "BTCUSDT muestra una estructura de consolidación en el nivel de $64,200. El RSI(14) está en 54.2 (neutral) con EMA(20) superando levemente a la EMA(50), lo que sugiere un sesgo alcista moderado a corto plazo.";
-      } else if (lower.includes("señal") || lower.includes("probabilidad")) {
-        responseText = "Actualmente Lucy IA ha detectado 2 señales activas de alta probabilidad: COMPRA en ETHUSDT ($3,450, 89% confianza) y COMPRA en SOLUSDT ($142.50, 84% confianza).";
-      } else if (lower.includes("recomiendas") || lower.includes("operar")) {
-        responseText = "Basado en el volumen de negociación de las últimas 4 horas, ETHUSDT y SOLUSDT muestran mayor volatilidad limpia con bajo spread. Se recomienda operar con stop loss ajustado.";
-      } else if (lower.includes("rsi")) {
-        responseText = "El RSI actual se calcula sobre los últimos 14 períodos. Recuerda que valores por encima de 70 indican sobrecompra (posible corrección a la baja) y por debajo de 30 indican sobreventa (posible rebote).";
-      } else {
-        responseText = `He procesado tu consulta sobre "${text}". Mis algoritmos sugieren mantener un control estricto de riesgo con un ratio R:R de mínimo 1:2 en todas las posiciones abiertas.`;
+      if (lower.includes("conect")) {
+        responseText =
+          "No. El backend responde /api/lucy/health con pending=true. El worker no abre ni cierra trades por Lucy.";
+      } else if (lower.includes("señal")) {
+        responseText =
+          "Las señales de Lucy saldrán de la API cuando se conecte. Ahora la lista puede estar vacía y eso es correcto.";
+      } else if (lower.includes("operar")) {
+        responseText =
+          "No operes con Lucy todavía. Usa Cuentas + Motor Trading con un broker real (Binance, Bybit o MT5).";
       }
 
       const lucyMsg: ChatMessage = {
@@ -88,13 +86,13 @@ export default function LucyChat() {
             <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
             </svg>
-            <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-500 border-2 border-zinc-950" />
+            <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-amber-500 border-2 border-zinc-950" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-white">Chat interactivo Lucy IA</h2>
-              <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
-                ONLINE
+              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/30">
+                PENDIENTE
               </span>
             </div>
             <p className="text-xs text-purple-300/70">Asistente Virtual de Análisis & Estrategias</p>
@@ -140,7 +138,7 @@ export default function LucyChat() {
           <div className="flex items-start">
             <div className="rounded-2xl bg-purple-950/30 border border-purple-500/30 p-3 text-xs text-purple-300 rounded-bl-none flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-purple-400 animate-ping" />
-              <span>Lucy está pensando la mejor recomendación...</span>
+              <span>Lucy está pendiente; no hay análisis de mercado.</span>
             </div>
           </div>
         )}
