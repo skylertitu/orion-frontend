@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import AuthGuard from "@/components/AuthGuard";
 import { clearSession, getUser, getSession, setSession } from "@/lib/auth";
-import { api, type SystemOverview } from "@/lib/api";
+import { api } from "@/lib/api";
 
 const navLinks = [
   {
@@ -85,7 +85,6 @@ export default function DashboardLayout({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
-  const [system, setSystem] = useState<SystemOverview | null>(null);
   const isAdmin = user?.role === "admin";
   const showLabels = !isDesktop || sidebarOpen;
 
@@ -101,20 +100,6 @@ export default function DashboardLayout({
       }
     }
     validateMe();
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadSystem() {
-      const res = await api.system.status();
-      if (!cancelled && res.success && res.data) setSystem(res.data);
-    }
-    void loadSystem();
-    const id = setInterval(() => void loadSystem(), 15000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
   }, []);
 
   useEffect(() => {
@@ -152,17 +137,6 @@ export default function DashboardLayout({
 
   const usernameDisplay = user?.username || "siomeyromero";
   const userInitials = usernameDisplay.substring(0, 2).toUpperCase();
-  const downCount = system?.modules.filter((m) => m.enabled && m.health === "down").length ?? 0;
-  const pausedCount = system?.modules.filter((m) => !m.enabled).length ?? 0;
-  const motorOk = downCount === 0 && pausedCount === 0;
-  const motorLabel = !system
-    ? "Motor"
-    : downCount
-      ? `${downCount} con error`
-      : pausedCount
-        ? `${pausedCount} apagados`
-        : "Motor activo";
-
   const desktopExpanded = sidebarOpen;
 
   return (
@@ -197,10 +171,10 @@ export default function DashboardLayout({
         )}
 
         <aside
-          className={`fixed z-50 flex flex-col justify-between overflow-y-auto border-zinc-800/60 bg-[#0a0d16] p-4 shadow-2xl shadow-black/60 transition-all duration-200
+          className={`fixed z-50 flex flex-col justify-between overflow-y-auto border-white/5 bg-[#0b0f18]/95 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-xl transition-all duration-200
             max-md:inset-y-0 max-md:left-0 max-md:w-[min(16.5rem,88vw)] max-md:rounded-none max-md:border-r
             ${mobileOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full"}
-            md:top-3 md:bottom-3 md:left-3 md:rounded-2xl md:border
+            md:top-3 md:bottom-3 md:left-3 md:rounded-[1.6rem] md:border
             ${desktopExpanded ? "md:w-60" : "md:w-16 md:items-center"}`}
         >
           <div className={showLabels ? "" : "w-full flex flex-col items-center"}>
@@ -216,13 +190,13 @@ export default function DashboardLayout({
                   showLabels ? "" : "justify-center"
                 }`}
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gold text-black font-black text-xs shadow-md shadow-gold/20">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gold text-black font-black text-xs shadow-[0_0_24px_rgba(212,168,67,0.35)]">
                   AT
                 </div>
                 {showLabels && (
                   <div className="text-left">
-                    <div className="text-sm font-bold text-white leading-tight">AutoTrade</div>
-                    <div className="text-[10px] text-zinc-500 font-mono">v2.4.1</div>
+                    <div className="text-sm font-semibold tracking-tight text-white leading-tight">AutoTrade</div>
+                    <div className="text-[10px] tracking-[0.18em] text-zinc-500 uppercase">Private desk</div>
                   </div>
                 )}
               </button>
@@ -240,31 +214,7 @@ export default function DashboardLayout({
               )}
             </div>
 
-            {showLabels && (
-              <>
-                {/* Motor Status Pill */}
-                <Link
-                  href="/trading?tab=control"
-                  className={`mb-6 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${
-                    motorOk
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                      : downCount
-                        ? "border-red-500/30 bg-red-500/10 text-red-300"
-                        : "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                  }`}
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      motorOk ? "animate-pulse bg-emerald-400" : downCount ? "bg-red-400" : "bg-amber-400"
-                    }`}
-                  />
-                  <span>{motorLabel}</span>
-                </Link>
-              </>
-            )}
-
-            {/* Nav Menu */}
-            <nav className={`${showLabels ? "space-y-1" : "w-full flex flex-col items-center space-y-1"}`}>
+            <nav className={`${showLabels ? "mt-2 space-y-1" : "w-full flex flex-col items-center space-y-1"}`}>
               {navLinks
                 .filter((link) => isAdmin || link.href !== "/indicadores")
                 .map((link) => {
@@ -274,12 +224,12 @@ export default function DashboardLayout({
                     key={link.href}
                     href={link.href}
                     title={link.label}
-                    className={`flex items-center justify-between rounded-xl px-3.5 py-2.5 text-xs font-semibold transition-all ${
+                    className={`flex items-center justify-between rounded-xl px-3.5 py-2.5 text-[13px] font-medium tracking-tight transition-all ${
                       showLabels ? "" : "justify-center"
                     } ${
                       active
-                          ? "border border-gold/50 bg-gold/10 text-gold shadow-sm"
-                          : "text-zinc-400 hover:bg-zinc-900/60 hover:text-white"
+                          ? "bg-gold/12 text-gold shadow-[inset_0_0_0_1px_rgba(212,168,67,0.35)]"
+                          : "text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                     }`}
                   >
                     <div className={`flex items-center gap-3 ${showLabels ? "" : "justify-center"}`}>
@@ -301,7 +251,7 @@ export default function DashboardLayout({
               {isAdmin && (
                 <Link
                   href="/admin"
-                  title="Configuración"
+                  title="Administración"
                   className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-semibold transition-all ${
                     showLabels ? "" : "justify-center"
                   } ${
@@ -313,7 +263,7 @@ export default function DashboardLayout({
                   <svg className="h-4 w-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   </svg>
-                  {showLabels && <span>Configuración</span>}
+                  {showLabels && <span>Administración</span>}
                 </Link>
               )}
             </nav>

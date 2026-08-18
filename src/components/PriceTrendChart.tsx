@@ -207,12 +207,12 @@ export default function PriceTrendChart({
   }, [symbol, interval, ingestKlines]);
 
   return (
-    <div className="flex w-full flex-col rounded-2xl border border-zinc-800/80 bg-zinc-950/80 p-4 backdrop-blur-md shadow-xl">
+    <div className="flex w-full flex-col rounded-[1.4rem] border border-white/8 bg-[#0b0f18]/80 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-md">
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-fuchsia-500 animate-pulse" />
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-            Tendencias de Precio
+          <span className="h-2 w-2 rounded-full bg-gold animate-pulse" />
+          <h2 className="text-sm font-semibold tracking-tight text-white">
+            BTC · tendencia
           </h2>
         </div>
         <span className="text-[11px] font-mono text-zinc-500">

@@ -8,13 +8,13 @@ import { toast } from "@/lib/toast";
 const STEPS: Record<string, string[]> = {
   binance: [
     "Conecta tu cuenta en Cuentas con API Key y Secret.",
-    "Backend corriendo en puerto 3008.",
-    "Verifica internet y acceso a api.binance.com.",
+    "Empieza en DEMO: la prueba de conexión es real, las órdenes no.",
+    "Pasa a LIVE solo cuando quieras operar de verdad.",
   ],
   bybit: [
     "Conecta tu cuenta en Cuentas con API Key y Secret.",
     "Permisos de lectura y trading en Bybit.",
-    "Usa testnet si tu cuenta es de prueba.",
+    "DEMO por defecto. LIVE envía órdenes reales.",
   ],
   mt5: [
     "MT_ENABLED=true en backend/.env",

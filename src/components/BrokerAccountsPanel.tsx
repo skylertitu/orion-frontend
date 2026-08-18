@@ -25,6 +25,7 @@ export default function BrokerAccountsPanel() {
   const [accounts, setAccounts] = useState<BrokerAccountPublic[]>([]);
   const [loading, setLoading] = useState(true);
   const [testingId, setTestingId] = useState<number | null>(null);
+  const [modeId, setModeId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     brokerId: "binance",
@@ -71,6 +72,28 @@ export default function BrokerAccountsPanel() {
       toast.error(res.error || "No se pudo probar la conexión");
     }
     setTestingId(null);
+  }
+
+  async function handleMode(accountId: number, mode: "demo" | "live") {
+    const current = getUser();
+    if (!current) return;
+    if (
+      mode === "live" &&
+      !window.confirm(
+        "¿Pasar esta cuenta a LIVE?\nLas siguientes órdenes se enviarán de verdad al broker. Empieza en DEMO si aún estás probando."
+      )
+    ) {
+      return;
+    }
+    setModeId(accountId);
+    const res = await api.brokerAccounts.setMode(current.id, accountId, mode);
+    if (res.success && res.data) {
+      setAccounts((prev) => prev.map((a) => (a.id === accountId ? res.data! : a)));
+      toast.success(res.message || (mode === "live" ? "Cuenta en LIVE" : "Cuenta en DEMO"));
+    } else {
+      toast.error(res.error || "No se pudo cambiar el modo");
+    }
+    setModeId(null);
   }
 
   async function handlePrimary(accountId: number) {
@@ -203,6 +226,9 @@ export default function BrokerAccountsPanel() {
           >
             Guardar
           </button>
+          <p className="text-[11px] text-zinc-500">
+            Pega las API keys reales. La cuenta nace en DEMO: prueba de conexión al broker, órdenes simuladas.
+          </p>
         </form>
       )}
 
@@ -210,7 +236,7 @@ export default function BrokerAccountsPanel() {
         <p className="text-sm text-zinc-500">Cargando...</p>
       ) : accounts.length === 0 ? (
         <p className="rounded-lg border border-zinc-800 px-4 py-6 text-center text-sm text-zinc-500">
-          Sin cuentas. Conecta un broker para operar.
+          Sin cuentas. Conecta Binance, Bybit o MT5 con tus keys reales; empieza en DEMO.
         </p>
       ) : (
         <div className="space-y-2">
@@ -223,6 +249,13 @@ export default function BrokerAccountsPanel() {
                 <div className="truncate text-sm font-medium text-white">
                   {acc.accountName}
                   {acc.isPrimary && <span className="ml-2 text-xs text-gold">principal</span>}
+                  <span
+                    className={`ml-2 text-[10px] font-bold uppercase ${
+                      (acc.executionMode || "demo") === "live" ? "text-red-300" : "text-amber-300"
+                    }`}
+                  >
+                    {(acc.executionMode || "demo") === "live" ? "LIVE" : "DEMO"}
+                  </span>
                 </div>
                 <div className="text-xs text-zinc-500">
                   {acc.brokerId.toUpperCase()} ·{" "}
@@ -244,6 +277,25 @@ export default function BrokerAccountsPanel() {
                 {!acc.isPrimary && (
                   <button type="button" onClick={() => handlePrimary(acc.id)} className="text-zinc-400">
                     Principal
+                  </button>
+                )}
+                {(acc.executionMode || "demo") === "live" ? (
+                  <button
+                    type="button"
+                    disabled={modeId === acc.id}
+                    onClick={() => void handleMode(acc.id, "demo")}
+                    className="text-amber-300"
+                  >
+                    {modeId === acc.id ? "..." : "Volver a demo"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={modeId === acc.id}
+                    onClick={() => void handleMode(acc.id, "live")}
+                    className="text-red-300"
+                  >
+                    {modeId === acc.id ? "..." : "Pasar a live"}
                   </button>
                 )}
                 <button type="button" onClick={() => handleDelete(acc.id)} className="text-red-400">

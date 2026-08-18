@@ -18,7 +18,6 @@ interface SignalRow {
 }
 
 export default function LucyPanel() {
-  const user = getUser();
   const [signals, setSignals] = useState<SignalRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [lucyStatus, setLucyStatus] = useState<{
@@ -41,8 +40,9 @@ export default function LucyPanel() {
         pending: Boolean(data?.pending) || data?.alive === false || !health.success,
         reason: data?.reason || "Lucy SDK/API aún no está implementada.",
       });
-      if (!user) return;
-      const res = await api.signals.list(user.id, { source: "lucy", limit: 12 });
+      const userId = getUser()?.id;
+      if (!userId) return;
+      const res = await api.signals.list(userId, { source: "lucy", limit: 12 });
       if (res.success && res.data) {
         setSignals(res.data as SignalRow[]);
       }
@@ -55,7 +55,7 @@ export default function LucyPanel() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     loadSignals();

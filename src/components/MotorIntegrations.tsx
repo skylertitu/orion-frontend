@@ -10,12 +10,14 @@ export default function MotorIntegrations() {
   const [jupiter, setJupiter] = useState<JupiterStatus | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const [sys, jup] = await Promise.all([api.admin.system(), api.jupiter.status()]);
+    const [sys, jup] = await Promise.all([api.admin.system(), api.admin.jupiterStatus()]);
     if (sys.success && sys.data) setData(sys.data);
     if (jup.success && jup.data) setJupiter(jup.data);
     else if (!jup.success) setJupiter({ connected: false, hasKey: false, keySource: "none", keyHint: null, error: jup.error });
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -68,17 +70,27 @@ export default function MotorIntegrations() {
           </div>
           <span
             className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-              jupiter?.connected
-                ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
-                : "border-amber-500/40 bg-amber-500/15 text-amber-300"
+              loading && !jupiter
+                ? "border-zinc-600 bg-zinc-800 text-zinc-300"
+                : jupiter?.connected
+                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
+                  : "border-amber-500/40 bg-amber-500/15 text-amber-300"
             }`}
           >
-            {jupiter?.connected ? "Conectado" : jupiter?.hasKey ? "Key inválida" : "Sin key"}
+            {loading && !jupiter
+              ? "Cargando"
+              : jupiter?.connected
+                ? "Conectado"
+                : jupiter?.hasKey
+                  ? "Key inválida"
+                  : "Sin key"}
           </span>
         </div>
         <p className="mt-3 text-xs text-zinc-400">
-          {jupiter?.error ||
-            (jupiter?.sample ? `SOL $${jupiter.sample.usdPrice.toFixed(2)}` : "Esperando ping")}
+          {loading && !jupiter
+            ? "Consultando Jupiter..."
+            : jupiter?.error ||
+              (jupiter?.sample ? `SOL $${jupiter.sample.usdPrice.toFixed(2)}` : "Esperando ping")}
           {jupiter?.keyHint ? ` · key ${jupiter.keyHint} (${jupiter.keySource})` : ""}
         </p>
         <form onSubmit={saveKey} className="mt-4 flex flex-col gap-2 sm:flex-row">

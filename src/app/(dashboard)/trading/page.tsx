@@ -232,7 +232,7 @@ export default function TradingPage() {
     if (res.success) {
       const data = (res.data || {}) as { ticket?: string | number; executedPrice?: number };
       toast.success(
-        `${side === "buy" ? "Compra" : "Venta"} enviada a ${brokerLabel}${data.ticket ? ` · ticket ${data.ticket}` : ""}`
+        `${side === "buy" ? "Compra" : "Venta"} ${(selectedAccount?.executionMode || "demo") === "live" ? "enviada" : "DEMO"} · ${brokerLabel}${data.ticket ? ` · ticket ${data.ticket}` : ""}`
       );
       setLastOrder({
         at: new Date().toISOString(),
@@ -326,7 +326,13 @@ export default function TradingPage() {
         <StatCard
           label="Cuentas listas"
           value={`${connectedAccounts.length}/${accounts.length || 0}`}
-          hint={connectedAccounts.length ? "Puedes enviar órdenes" : "Conecta un broker primero"}
+          hint={
+            connectedAccounts.length
+              ? connectedAccounts.some((a) => (a.executionMode || "demo") === "live")
+                ? "Hay al menos una cuenta LIVE"
+                : "Listas en DEMO"
+              : "Conecta un broker primero"
+          }
         />
         <StatCard
           label="Par activo"
@@ -349,7 +355,11 @@ export default function TradingPage() {
         <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-zinc-800/80 bg-zinc-950 p-5">
           <div>
             <h2 className="font-bold text-white">Nueva orden</h2>
-            <p className="text-[11px] text-zinc-500">Se envía a tu broker. No es una simulación.</p>
+            <p className="text-[11px] text-zinc-500">
+              {(selectedAccount?.executionMode || "demo") === "live"
+                ? "LIVE: esta orden sale al broker de verdad."
+                : "DEMO: precios reales, la orden no sale al exchange."}
+            </p>
           </div>
 
           <div>
@@ -379,7 +389,7 @@ export default function TradingPage() {
               >
                 {brokerAccounts.map((acc) => (
                   <option key={acc.id} value={acc.id}>
-                    {acc.accountName} · {acc.status}
+                    {acc.accountName} · {(acc.executionMode || "demo") === "live" ? "LIVE" : "DEMO"} · {acc.status}
                     {acc.isPrimary ? " · principal" : ""}
                   </option>
                 ))}

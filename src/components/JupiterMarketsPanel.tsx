@@ -2,7 +2,14 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { api, type JupiterPriceRow, type JupiterQuote, type WalletTransferPublic } from "@/lib/api";
-import { connectPhantom, getPhantom, signJupiterTransaction } from "@/lib/solanaWallet";
+import {
+  connectPhantom,
+  disconnectPhantom,
+  isPhantomInstalled,
+  reconnectPhantom,
+  signJupiterTransaction,
+  waitForPhantom,
+} from "@/lib/solanaWallet";
 import { toast } from "@/lib/toast";
 
 function money(value: number | null, digits = 4): string {
@@ -20,9 +27,12 @@ export default function JupiterMarketsPanel() {
   const [quote, setQuote] = useState<JupiterQuote | null>(null);
   const [swaps, setSwaps] = useState<WalletTransferPublic[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [swapping, setSwapping] = useState(false);
   const [wallet, setWallet] = useState("");
+  const [phantomInstalled, setPhantomInstalled] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [lastTx, setLastTx] = useState("");
   const [input, setInput] = useState("SOL");
   const [output, setOutput] = useState("USDC");
@@ -36,8 +46,10 @@ export default function JupiterMarketsPanel() {
     ]);
     if (priceRes.success && Array.isArray(priceRes.data)) {
       setPrices(priceRes.data);
-    } else if (notify) {
-      toast.error(priceRes.error || "No se pudieron leer los mercados de Jupiter");
+      setLoadError(null);
+    } else {
+      setLoadError(priceRes.error || "No se pudieron leer los mercados de Jupiter");
+      if (notify) toast.error(priceRes.error || "No se pudieron leer los mercados de Jupiter");
     }
     if (transferRes.success && Array.isArray(transferRes.data)) {
       setSwaps(transferRes.data.filter((row) => row.type === "swap").slice(0, 6));
@@ -46,14 +58,60 @@ export default function JupiterMarketsPanel() {
   }, []);
 
   useEffect(() => {
-    const phantom = getPhantom();
-    if (phantom?.publicKey) setWallet(phantom.publicKey.toString());
+    let cancelled = false;
+    let detach: (() => void) | undefined;
+
+    async function attachPhantom() {
+      const phantom = await waitForPhantom();
+      if (cancelled || !phantom) return;
+      setPhantomInstalled(true);
+
+      const onConnect = (pubkey?: { toString(): string } | null) => {
+        const next = pubkey?.toString() || phantom.publicKey?.toString() || "";
+        if (next) setWallet(next);
+      };
+      const onDisconnect = () => setWallet("");
+      const onAccount = (pubkey?: { toString(): string } | null) => {
+        setWallet(pubkey?.toString() || "");
+      };
+      phantom.on?.("connect", onConnect);
+      phantom.on?.("disconnect", onDisconnect);
+      phantom.on?.("accountChanged", onAccount);
+      detach = () => {
+        phantom.off?.("connect", onConnect);
+        phantom.off?.("disconnect", onDisconnect);
+        phantom.off?.("accountChanged", onAccount);
+      };
+
+      setConnecting(true);
+      try {
+        const address = await connectPhantom();
+        if (!cancelled && address) setWallet(address);
+      } catch {
+        const trusted = await reconnectPhantom();
+        if (!cancelled && trusted) setWallet(trusted);
+      }
+      if (!cancelled) setConnecting(false);
+    }
+
+    void attachPhantom();
     void load(true);
     const id = setInterval(() => void load(false), 20000);
-    return () => clearInterval(id);
+    return () => {
+      cancelled = true;
+      detach?.();
+      clearInterval(id);
+    };
   }, [load]);
 
   async function handleConnect() {
+    setPhantomInstalled(isPhantomInstalled());
+    if (!isPhantomInstalled()) {
+      window.open("https://phantom.app/download", "_blank", "noreferrer");
+      toast.info("Instala Phantom y recarga esta pestaña");
+      return;
+    }
+    setConnecting(true);
     try {
       const address = await connectPhantom();
       setWallet(address);
@@ -61,6 +119,13 @@ export default function JupiterMarketsPanel() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo abrir Phantom");
     }
+    setConnecting(false);
+  }
+
+  async function handleDisconnect() {
+    await disconnectPhantom();
+    setWallet("");
+    toast.success("Phantom desconectado de esta sesión");
   }
 
   async function requestQuote(e: FormEvent) {
@@ -116,6 +181,8 @@ export default function JupiterMarketsPanel() {
   }
 
   const symbols = prices.length ? prices.map((p) => p.symbol) : ["SOL", "USDC", "USDT", "JUP"];
+  const jupiterOk = prices.length > 0;
+  const phase0Ready = phantomInstalled && Boolean(wallet) && jupiterOk;
 
   return (
     <div className="space-y-5">
@@ -123,17 +190,50 @@ export default function JupiterMarketsPanel() {
         <div>
           <h2 className="text-lg font-black text-white">Mercados Jupiter</h2>
           <p className="text-sm text-zinc-400">
-            Precios de Solana y swap real: Phantom firma, Jupiter aterriza la transacción.
+            Fase 0: instala Phantom, conéctalo y pulsa Ver ruta. Eso no gasta SOL. Ejecutar swap sí es on-chain.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleConnect()}
-          className="rounded-xl border border-zinc-700 px-3 py-2 text-[11px] font-bold uppercase text-zinc-200 hover:border-gold hover:text-gold"
-        >
-          {wallet ? shortAddr(wallet) : "Conectar Phantom"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {wallet && (
+            <button
+              type="button"
+              onClick={() => void handleDisconnect()}
+              className="rounded-xl border border-zinc-700 px-3 py-2 text-[11px] font-bold uppercase text-zinc-400 hover:text-white"
+            >
+              Salir
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void handleConnect()}
+            disabled={connecting}
+            className="rounded-xl border border-zinc-700 px-3 py-2 text-[11px] font-bold uppercase text-zinc-200 hover:border-gold hover:text-gold disabled:opacity-40"
+          >
+            {connecting
+              ? "Abriendo Phantom..."
+              : wallet
+                ? shortAddr(wallet)
+                : phantomInstalled
+                  ? "Conectar Phantom"
+                  : "Instalar Phantom"}
+          </button>
+        </div>
       </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        <PhaseCheck ok={phantomInstalled} label="Extensión Phantom" detail={phantomInstalled ? "Detectada" : "No está en este navegador"} />
+        <PhaseCheck ok={Boolean(wallet)} label="Sesión Phantom" detail={wallet ? shortAddr(wallet) : "Pendiente de conectar"} />
+        <PhaseCheck
+          ok={jupiterOk}
+          label="Jupiter API"
+          detail={jupiterOk ? "Precios en vivo" : loadError || "Sin key o sin precios"}
+        />
+      </div>
+      {phase0Ready && (
+        <p className="text-xs text-emerald-400">
+          Fase 0 lista. Siguiente: Ver ruta (cotizar). Vincular la wallet a tu usuario es la fase 1.
+        </p>
+      )}
 
       <div className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-950">
         <table className="w-full text-left text-xs font-mono">
@@ -150,6 +250,12 @@ export default function JupiterMarketsPanel() {
               <tr>
                 <td className="px-3 py-6 text-zinc-500" colSpan={4}>
                   Consultando Jupiter...
+                </td>
+              </tr>
+            ) : prices.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-amber-200/90" colSpan={4}>
+                  {loadError || "Jupiter no devolvió precios. Pega la API key en Motor → Integraciones y vuelve a esta pestaña."}
                 </td>
               </tr>
             ) : (
@@ -216,6 +322,9 @@ export default function JupiterMarketsPanel() {
             {swapping ? "Ejecutando..." : "Ejecutar swap"}
           </button>
         </div>
+        <p className="text-[11px] text-zinc-500">
+          Ver ruta solo consulta Jupiter. Ejecutar swap pide firma en Phantom y mueve fondos reales.
+        </p>
         {quote && (
           <p className="text-sm text-zinc-300">
             {quote.inUi} {quote.input.symbol} → {money(quote.outUi, 6)} {quote.output.symbol}
@@ -258,6 +367,17 @@ export default function JupiterMarketsPanel() {
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+function PhaseCheck({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2.5">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className={`mt-1 text-xs font-semibold ${ok ? "text-emerald-400" : "text-zinc-400"}`}>
+        {ok ? "OK" : "Falta"} · {detail}
+      </p>
     </div>
   );
 }

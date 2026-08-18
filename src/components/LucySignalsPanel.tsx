@@ -18,14 +18,14 @@ interface SignalRow {
 }
 
 export default function LucySignalsPanel() {
-  const user = getUser();
   const [signals, setSignals] = useState<SignalRow[]>([]);
 
   const load = useCallback(async () => {
-    if (!user) return;
-    const res = await api.signals.list(user.id, { source: "lucy", limit: 15 });
+    const userId = getUser()?.id;
+    if (!userId) return;
+    const res = await api.signals.list(userId, { source: "lucy", limit: 15 });
     if (res.success && res.data) setSignals(res.data as SignalRow[]);
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     load();

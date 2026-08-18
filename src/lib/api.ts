@@ -210,6 +210,11 @@ export const api = {
       request<BrokerAccountPublic>(`/broker-accounts/${userId}/${id}/set-primary`, {
         method: "POST",
       }),
+    setMode: (userId: number, id: number, mode: "demo" | "live") =>
+      request<BrokerAccountPublic>(`/broker-accounts/${userId}/${id}/mode`, {
+        method: "POST",
+        body: JSON.stringify({ mode }),
+      }),
   },
   wallets: {
     list: () => request<WalletPublic[]>("/wallets"),
@@ -289,12 +294,23 @@ export const api = {
       request(`/admin/users/${id}/promote`, { method: "POST" }),
     demote: (id: number) =>
       request(`/admin/users/${id}/demote`, { method: "POST" }),
-    system: () => request<SystemOverview>("/admin/system"),
+    system: () => request<SystemOverview>("/admin/system", { timeoutMs: 25000 }),
     toggleModule: (id: string, enabled: boolean, note?: string) =>
       request<SystemOverview>(`/admin/system/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ enabled, note }),
       }),
+    saveRisk: (limits: RiskLimits) =>
+      request<SystemOverview>("/admin/risk", {
+        method: "PATCH",
+        body: JSON.stringify(limits),
+      }),
+    pauseRisk: (reason?: string) =>
+      request<SystemOverview>("/admin/risk/pause", {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }),
+    resumeRisk: () => request<SystemOverview>("/admin/risk/resume", { method: "POST" }),
     jupiterStatus: () => request<JupiterStatus>("/admin/integrations/jupiter"),
     setJupiterKey: (apiKey: string) =>
       request<JupiterStatus>("/admin/integrations/jupiter", {
@@ -350,6 +366,7 @@ export interface BrokerAccountPublic {
   accountName: string;
   accountType: string;
   environment: string;
+  executionMode?: "demo" | "live";
   externalRef: string | null;
   status: string;
   isPrimary: boolean;
@@ -498,6 +515,30 @@ export interface SystemModuleStatus {
   note?: string | null;
 }
 
+export interface RiskLimits {
+  maxDailyLossUsd: number;
+  maxOrderUsd: number;
+  maxOpenPositions: number;
+  maxErrorStreak: number;
+}
+
+export interface RiskSnapshot {
+  limits: RiskLimits;
+  pausedByRisk: boolean;
+  pauseReason: string | null;
+  errorStreak: number;
+  dailyPnlUsd: number;
+  openPositions: number;
+  lastReject: {
+    at: string;
+    reason: string;
+    symbol?: string;
+    strategyId?: number;
+  } | null;
+  updatedBy: number | null;
+  updatedAt: string | null;
+}
+
 export interface SystemOverview {
   modules: SystemModuleStatus[];
   worker?: {
@@ -522,6 +563,7 @@ export interface SystemOverview {
     firebaseAdmin: boolean;
     firebaseAuth: boolean;
   };
+  risk?: RiskSnapshot | null;
 }
 
 export interface JupiterStatus {

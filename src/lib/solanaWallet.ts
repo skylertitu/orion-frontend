@@ -2,16 +2,20 @@
 
 import { VersionedTransaction } from "@solana/web3.js";
 
-type PhantomProvider = {
+export type PhantomProvider = {
   isPhantom?: boolean;
   publicKey?: { toString(): string };
   connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString(): string } }>;
+  disconnect?: () => Promise<void>;
   signTransaction: (tx: VersionedTransaction) => Promise<VersionedTransaction>;
+  on?: (event: "connect" | "disconnect" | "accountChanged", handler: (pubkey?: { toString(): string } | null) => void) => void;
+  off?: (event: "connect" | "disconnect" | "accountChanged", handler: (pubkey?: { toString(): string } | null) => void) => void;
 };
 
 declare global {
   interface Window {
     solana?: PhantomProvider;
+    phantom?: { solana?: PhantomProvider };
   }
 }
 
@@ -31,22 +35,80 @@ function base64ToBytes(value: string): Uint8Array {
   return bytes;
 }
 
+export function isPhantomInstalled(): boolean {
+  return Boolean(getPhantom());
+}
+
 export function getPhantom(): PhantomProvider | null {
   if (typeof window === "undefined") return null;
+  const fromNamespace = window.phantom?.solana;
+  if (fromNamespace && typeof fromNamespace.connect === "function") return fromNamespace;
   const provider = window.solana;
-  if (provider?.isPhantom) return provider;
+  if (provider?.isPhantom && typeof provider.connect === "function") return provider;
   return null;
 }
 
+export function waitForPhantom(timeoutMs = 10000): Promise<PhantomProvider | null> {
+  const already = getPhantom();
+  if (already) return Promise.resolve(already);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("phantom#initialized", onReady);
+      clearInterval(poll);
+      clearTimeout(timer);
+      resolve(getPhantom());
+    };
+    const onReady = () => {
+      if (getPhantom()) finish();
+    };
+    window.addEventListener("phantom#initialized", onReady);
+    const poll = setInterval(onReady, 200);
+    const timer = setTimeout(finish, timeoutMs);
+  });
+}
+
+function addressOf(phantom: PhantomProvider, fallback?: { toString(): string }): string {
+  return fallback?.toString() || phantom.publicKey?.toString() || "";
+}
+
+export async function reconnectPhantom(): Promise<string> {
+  const phantom = getPhantom() || (await waitForPhantom());
+  if (!phantom) return "";
+  if (phantom.publicKey) return phantom.publicKey.toString();
+  try {
+    const res = await phantom.connect({ onlyIfTrusted: true });
+    return addressOf(phantom, res.publicKey);
+  } catch {
+    return phantom.publicKey?.toString() || "";
+  }
+}
+
 export async function connectPhantom(): Promise<string> {
-  const phantom = getPhantom();
+  const phantom = getPhantom() || (await waitForPhantom());
   if (!phantom) {
-    throw new Error("Instala Phantom para firmar el swap (https://phantom.app)");
+    throw new Error("Instala Phantom para continuar (https://phantom.app/download)");
+  }
+  if (phantom.publicKey) return phantom.publicKey.toString();
+  try {
+    const trusted = await phantom.connect({ onlyIfTrusted: true });
+    const silent = addressOf(phantom, trusted.publicKey);
+    if (silent) return silent;
+  } catch {
+    /* primera vez: hay que pedir el popup */
   }
   const res = await phantom.connect();
-  const address = res.publicKey?.toString() || phantom.publicKey?.toString() || "";
+  const address = addressOf(phantom, res.publicKey);
   if (!address) throw new Error("Phantom no devolvió una dirección");
   return address;
+}
+
+export async function disconnectPhantom(): Promise<void> {
+  const phantom = getPhantom();
+  await phantom?.disconnect?.();
 }
 
 export async function signJupiterTransaction(transactionBase64: string): Promise<string> {

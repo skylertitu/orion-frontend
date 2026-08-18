@@ -36,6 +36,13 @@ function confidenceLabel(raw: number): string {
   return `${pct}%`;
 }
 
+function greetingForHour(date = new Date()): string {
+  const hour = date.getHours();
+  if (hour < 12) return "Buenos días";
+  if (hour < 19) return "Buenas tardes";
+  return "Buenas noches";
+}
+
 export default function DashboardPage() {
   const user = getUser();
   const [timeStr, setTimeStr] = useState("--:--:--");
@@ -124,206 +131,192 @@ export default function DashboardPage() {
   const connectedBrokers = brokers.filter((b) => b.connected);
   const uniquePairs = new Set(positions.map((p) => p.symbol)).size;
   const executedSignals = signals.filter((s) => s.executed).length;
+  const displayName = user?.firstName || user?.username || "trader";
+  const brokerCards = (brokers.length
+    ? brokers
+    : ([
+        { id: "binance", label: "Binance", connected: false, enabled: false, message: "Cargando" },
+        { id: "bybit", label: "Bybit", connected: false, enabled: false, message: "Cargando" },
+        { id: "mt5", label: "MetaTrader 5", connected: false, enabled: false, message: "Cargando" },
+      ] as BrokerStatus[]));
 
   return (
-    <div className="flex min-h-screen min-w-0 flex-col gap-6 p-4 text-white bg-[#07090e] font-sans sm:p-6">
-      <div className="flex flex-col gap-2 border-b border-zinc-800/60 pb-3 text-xs text-zinc-400 font-mono sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <span>AutoTrade</span>
-          <span>/</span>
-          <span className="text-white font-bold">Dashboard</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-          <span className="hidden items-center gap-1.5 text-zinc-400 sm:flex">
-            <span className={`h-1.5 w-1.5 rounded-full ${backendOk ? "bg-emerald-400" : "bg-red-400"}`} />
-            {brokers.map((b) => b.label).join(" · ") || "Sin brokers"}
-          </span>
-          <span className="rounded-md border border-zinc-800 bg-[#111726] px-2 py-0.5 text-[11px] text-zinc-300 font-mono">
-            {timeStr}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Dashboard</h1>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            Datos reales del backend — actualizado {timeStr}
-          </p>
-        </div>
-
-        <div
-          className={`flex items-center gap-2 rounded-full border px-3.5 py-1 text-xs font-semibold ${
-            backendOk
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-              : "border-red-500/30 bg-red-500/10 text-red-400"
-          }`}
-        >
-          <span className={`h-2 w-2 rounded-full ${backendOk ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`} />
-          <span>
-            {backendOk
-              ? `Backend activo · ${connectedBrokers.length}/${brokers.length || 0} brokers`
-              : "Backend no disponible"}
-          </span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-2xl border border-zinc-800/80 bg-[#0a0d16] p-5">
-          <span className="text-xs font-medium text-zinc-400">P&L abierto</span>
-          <div
-            className={`mt-2 text-2xl font-bold font-mono ${
-              pnlTotal >= 0 ? "text-emerald-400" : "text-red-400"
-            }`}
-          >
-            {formatPnl(pnlTotal)}
+    <div className="relative min-h-full min-w-0 overflow-hidden bg-[#07090e] font-sans text-white">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-80 bg-[radial-gradient(ellipse_at_top,_rgba(212,168,67,0.10),transparent_58%)]" />
+      <div className="relative mx-auto flex w-full max-w-[1400px] flex-col gap-8 p-5 sm:p-8">
+        <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-gold/80">
+              AutoTrade desk
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+              {greetingForHour()}, {displayName}
+            </h1>
+            <p className="mt-2 max-w-xl text-sm text-zinc-400">
+              Resumen de tu cuenta, mercado y posiciones. El detalle de brokers vive en Motor.
+            </p>
           </div>
-          <div className="mt-1 text-[11px] text-zinc-500 font-medium">Suma de posiciones actuales</div>
-        </div>
-
-        <div className="rounded-2xl border border-zinc-800/80 bg-[#0a0d16] p-5">
-          <span className="text-xs font-medium text-zinc-400">Posiciones abiertas</span>
-          <div className="mt-2 text-2xl font-bold font-mono text-white">{positions.length}</div>
-          <div className="mt-1 text-[11px] text-zinc-500 font-medium">
-            {uniquePairs} {uniquePairs === 1 ? "par activo" : "pares activos"}
+          <div className="flex items-center gap-3">
+            <div className="rounded-full border border-white/8 bg-white/[0.03] px-3.5 py-1.5 text-[11px] text-zinc-400">
+              <span className={`mr-2 inline-block h-1.5 w-1.5 rounded-full ${backendOk ? "bg-emerald-400" : "bg-zinc-500"}`} />
+              {backendOk ? "Sesión en vivo" : "Conectando"}
+              <span className="ml-3 font-mono text-zinc-500">{timeStr}</span>
+            </div>
+            <Link
+              href="/trading"
+              className="rounded-full bg-gold px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-black transition hover:bg-gold-light"
+            >
+              Operar
+            </Link>
           </div>
-        </div>
+        </header>
 
-        <div className="rounded-2xl border border-zinc-800/80 bg-[#0a0d16] p-5">
-          <span className="text-xs font-medium text-zinc-400">Señales Lucy</span>
-          <div className="mt-2 text-2xl font-bold font-mono text-white">{signals.length}</div>
-          <div className="mt-1 text-[11px] text-zinc-500 font-medium">
-            {lucyPending ? "Lucy pendiente de conectar" : `${executedSignals} ejecutadas`}
-          </div>
-        </div>
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            {
+              label: "P&L abierto",
+              value: formatPnl(pnlTotal),
+              hint: "Suma de posiciones actuales",
+              tone: pnlTotal >= 0 ? "text-emerald-400" : "text-red-400",
+            },
+            {
+              label: "Posiciones",
+              value: String(positions.length),
+              hint: `${uniquePairs} ${uniquePairs === 1 ? "par activo" : "pares activos"}`,
+              tone: "text-white",
+            },
+            {
+              label: "Señales",
+              value: String(signals.length),
+              hint: lucyPending ? "Lucy aún no conectada" : `${executedSignals} ejecutadas`,
+              tone: "text-white",
+            },
+            {
+              label: "Brokers listos",
+              value: `${connectedBrokers.length}/${brokers.length || 0}`,
+              hint: "API pública no es cuenta de trading",
+              tone: "text-white",
+            },
+          ].map((card) => (
+            <div
+              key={card.label}
+              className="relative overflow-hidden rounded-[1.35rem] border border-white/8 bg-[#0b0f18]/80 p-5 shadow-[0_18px_50px_rgba(0,0,0,0.28)]"
+            >
+              <div className="absolute inset-y-4 left-0 w-px bg-gradient-to-b from-gold/80 via-gold/20 to-transparent" />
+              <p className="pl-3 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-500">
+                {card.label}
+              </p>
+              <p className={`mt-3 pl-3 font-mono text-[1.7rem] font-semibold tracking-tight ${card.tone}`}>
+                {card.value}
+              </p>
+              <p className="mt-2 pl-3 text-[12px] text-zinc-500">{card.hint}</p>
+            </div>
+          ))}
+        </section>
 
-        <div className="rounded-2xl border border-zinc-800/80 bg-[#0a0d16] p-5">
-          <span className="text-xs font-medium text-zinc-400">Brokers conectados</span>
-          <div className="mt-2 text-2xl font-bold font-mono text-white">
-            {connectedBrokers.length}/{brokers.length || 0}
-          </div>
-          <div className="mt-1 text-[11px] text-zinc-500 font-medium">
-            Mercado público no implica cuenta de trading
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-          Estado por broker
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {(brokers.length ? brokers : [
-            { id: "binance", label: "Binance", connected: false, enabled: false, message: "Sin datos" },
-            { id: "bybit", label: "Bybit", connected: false, enabled: false, message: "Sin datos" },
-            { id: "mt5", label: "MetaTrader 5", connected: false, enabled: false, message: "Sin datos" },
-          ] as BrokerStatus[]).map((broker) => (
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {brokerCards.map((broker) => (
             <div
               key={broker.id}
-              className="flex items-center justify-between rounded-2xl border border-zinc-800/80 bg-[#0a0d16] p-4"
+              className="flex items-center justify-between rounded-[1.2rem] border border-white/8 bg-white/[0.02] px-4 py-3.5"
             >
-              <div>
-                <div className="text-xs text-zinc-400 font-medium">{broker.label}</div>
-                <div className="text-sm font-medium text-white mt-1">
-                  {broker.message || (broker.connected ? "Responde" : "Sin respuesta")}
-                </div>
+              <div className="min-w-0">
+                <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">{broker.label}</p>
+                <p className="mt-1 truncate text-sm text-zinc-200">
+                  {broker.connected
+                    ? broker.message || "Responde"
+                    : broker.id === "bybit"
+                      ? "No disponible en este país"
+                      : broker.id === "mt5"
+                        ? "OrionBridge no adjunto"
+                        : broker.message || "Sin respuesta"}
+                </p>
               </div>
               <span
-                className={`rounded-md border px-2.5 py-1 text-[10px] font-mono font-semibold ${
+                className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
                   broker.connected
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                    : "border-zinc-700 bg-zinc-900 text-zinc-400"
+                    ? "bg-emerald-500/10 text-emerald-400"
+                    : "bg-white/5 text-zinc-500"
                 }`}
               >
-                {broker.connected ? "connected" : "offline"}
+                {broker.connected ? "Live" : "Standby"}
               </span>
             </div>
           ))}
-        </div>
-      </div>
+        </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8 flex flex-col gap-6">
-          <PriceTrendChart symbol="BTCUSDT" interval="1h" height={340} />
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          <div className="flex flex-col gap-6 lg:col-span-8">
+            <PriceTrendChart symbol="BTCUSDT" interval="1h" height={340} />
 
-          <div className="flex flex-col rounded-2xl border border-zinc-800/80 bg-[#0a0d16] p-5">
-            <div className="flex items-center justify-between mb-4 border-b border-zinc-800/60 pb-3">
-              <h2 className="text-sm font-bold text-white">Posiciones abiertas</h2>
-              <span className="rounded-md border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-xs font-mono font-semibold text-blue-300">
-                {positions.length} activas
-              </span>
-            </div>
-
-            {positions.length === 0 ? (
-              <p className="py-8 text-center text-xs text-zinc-500">
-                No hay posiciones abiertas en las cuentas conectadas.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs font-mono">
-                  <thead className="text-[10px] text-zinc-500 uppercase border-b border-zinc-800/60">
-                    <tr>
-                      <th className="py-2.5 px-3">Par</th>
-                      <th className="py-2.5 px-3">Lado</th>
-                      <th className="py-2.5 px-3">Entrada</th>
-                      <th className="py-2.5 px-3">Actual</th>
-                      <th className="py-2.5 px-3">Qty</th>
-                      <th className="py-2.5 px-3">P&L</th>
-                      <th className="py-2.5 px-3">Broker</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800/40">
-                    {positions.map((pos) => (
-                      <tr key={`${pos.broker}-${pos.ticket}-${pos.symbol}`} className="hover:bg-zinc-900/40">
-                        <td className="py-3 px-3 font-bold text-white">{pos.symbol}</td>
-                        <td className="py-3 px-3">
-                          <span
-                            className={`rounded px-2 py-0.5 text-[10px] font-bold ${
-                              pos.side === "BUY"
-                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                : "bg-red-500/20 text-red-400 border border-red-500/30"
-                            }`}
-                          >
-                            {pos.side}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-zinc-300">{pos.entry}</td>
-                        <td className="py-3 px-3 text-white font-bold">{pos.current}</td>
-                        <td className="py-3 px-3 text-zinc-400">{pos.qty}</td>
-                        <td className={`py-3 px-3 font-bold ${pos.isProfit ? "text-emerald-400" : "text-red-400"}`}>
-                          {pos.pnl}
-                        </td>
-                        <td className="py-3 px-3 text-zinc-400">{pos.broker}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="rounded-[1.4rem] border border-white/8 bg-[#0b0f18]/80 p-5 shadow-[0_18px_50px_rgba(0,0,0,0.28)]">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-white">Posiciones abiertas</h2>
+                <span className="rounded-full bg-white/5 px-2.5 py-0.5 text-[11px] text-zinc-400">
+                  {positions.length} activas
+                </span>
               </div>
-            )}
+              {positions.length === 0 ? (
+                <p className="py-10 text-center text-sm text-zinc-500">
+                  No hay posiciones abiertas. Cuando operes, el P&L aparece aquí.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+                      <tr className="border-b border-white/6">
+                        <th className="px-3 py-2.5 font-medium">Par</th>
+                        <th className="px-3 py-2.5 font-medium">Lado</th>
+                        <th className="px-3 py-2.5 font-medium">Entrada</th>
+                        <th className="px-3 py-2.5 font-medium">Actual</th>
+                        <th className="px-3 py-2.5 font-medium">Qty</th>
+                        <th className="px-3 py-2.5 font-medium">P&L</th>
+                        <th className="px-3 py-2.5 font-medium">Broker</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {positions.map((pos) => (
+                        <tr
+                          key={`${pos.broker}-${pos.ticket}-${pos.symbol}`}
+                          className="border-b border-white/4 last:border-0"
+                        >
+                          <td className="px-3 py-3 font-semibold text-white">{pos.symbol}</td>
+                          <td className="px-3 py-3">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                pos.side === "BUY" ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"
+                              }`}
+                            >
+                              {pos.side}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 font-mono text-zinc-400">{pos.entry}</td>
+                          <td className="px-3 py-3 font-mono text-white">{pos.current}</td>
+                          <td className="px-3 py-3 font-mono text-zinc-500">{pos.qty}</td>
+                          <td className={`px-3 py-3 font-mono font-semibold ${pos.isProfit ? "text-emerald-400" : "text-red-400"}`}>
+                            {pos.pnl}
+                          </td>
+                          <td className="px-3 py-3 text-zinc-500">{pos.broker}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="lg:col-span-4 flex flex-col justify-between rounded-2xl border border-zinc-800/80 bg-[#0a0d16] p-5">
-          <div>
-            <div className="flex items-center justify-between mb-4 border-b border-zinc-800/60 pb-3">
-              <h2 className="text-sm font-bold text-white">Señales</h2>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-bold border ${
-                  lucyPending
-                    ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                }`}
-              >
-                {lucyPending ? "LUCY PENDIENTE" : "LUCY ACTIVA"}
+          <aside className="flex flex-col rounded-[1.4rem] border border-white/8 bg-[#0b0f18]/80 p-5 shadow-[0_18px_50px_rgba(0,0,0,0.28)] lg:col-span-4">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-white">Señales</h2>
+              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                {lucyPending ? "Lucy en espera" : "Lucy activa"}
               </span>
             </div>
-
-            <div className="space-y-3 font-mono">
+            <div className="flex-1 space-y-2">
               {signals.length === 0 ? (
-                <p className="py-8 text-center text-xs text-zinc-500">
-                  {lucyPending
-                    ? "Lucy aún no está conectada. No hay señales inventadas."
-                    : "No hay señales registradas."}
+                <p className="py-10 text-center text-sm text-zinc-500">
+                  Lucy todavía no envía señales. El panel queda listo para cuando se conecte.
                 </p>
               ) : (
                 signals.map((sig) => {
@@ -331,42 +324,33 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={sig.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-3 text-xs"
+                      className="flex items-center justify-between rounded-2xl border border-white/6 bg-white/[0.02] px-3 py-2.5"
                     >
-                      <span className="text-zinc-500 text-[10px]">
-                        {new Date(sig.createdAt).toLocaleTimeString("es", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-white">{sig.symbol}</span>
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${
-                            action === "BUY"
-                              ? "bg-emerald-500/20 text-emerald-400"
-                              : "bg-red-500/20 text-red-400"
-                          }`}
-                        >
-                          {action} {confidenceLabel(sig.confidence)}
-                        </span>
+                      <div>
+                        <p className="text-sm font-semibold text-white">{sig.symbol}</p>
+                        <p className="text-[11px] text-zinc-500">
+                          {new Date(sig.createdAt).toLocaleTimeString("es", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
                       </div>
-                      <span className={sig.executed ? "text-emerald-400 font-bold" : "text-zinc-500"}>
-                        {sig.executed ? "ok" : "-"}
-                      </span>
+                      <div className="text-right">
+                        <p className={`text-[11px] font-semibold ${action === "BUY" ? "text-emerald-400" : "text-red-400"}`}>
+                          {action} {confidenceLabel(sig.confidence)}
+                        </p>
+                        <p className="text-[10px] text-zinc-600">{sig.executed ? "ejecutada" : "en cola"}</p>
+                      </div>
                     </div>
                   );
                 })
               )}
             </div>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-zinc-800/60 text-center">
-            <Link href="/lucy" className="text-xs text-gold hover:underline">
-              Ver estado de Lucy →
+            <Link href="/lucy" className="mt-4 text-center text-xs text-gold/90 hover:text-gold">
+              Ver Lucy
             </Link>
-          </div>
-        </div>
+          </aside>
+        </section>
       </div>
     </div>
   );
