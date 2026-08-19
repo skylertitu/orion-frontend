@@ -1,14 +1,21 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, BrokerAccountPublic } from "@/lib/api";
+import { api, BrokerAccountPublic, WalletPublic } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import { toast } from "@/lib/toast";
+import {
+  connectPhantom,
+  disconnectPhantom,
+  isPhantomInstalled,
+  signPhantomMessage,
+} from "@/lib/solanaWallet";
 
 const BROKERS = [
   { id: "binance", label: "Binance" },
   { id: "bybit", label: "Bybit" },
   { id: "mt5", label: "MetaTrader 5" },
+  { id: "phantom", label: "Phantom" },
 ] as const;
 
 const inputClass =
@@ -21,21 +28,34 @@ function statusColor(status: string) {
   return "text-zinc-400";
 }
 
+function shortAddr(address: string): string {
+  if (address.length < 12) return address;
+  return `${address.slice(0, 4)}…${address.slice(-4)}`;
+}
+
+const emptyForm = {
+  brokerId: "binance",
+  accountName: "",
+  accountType: "spot",
+  environment: "mainnet",
+  apiKey: "",
+  apiSecret: "",
+  isPrimary: false,
+  phantomUsername: "",
+  phantomAccount: "",
+};
+
 export default function BrokerAccountsPanel() {
   const [accounts, setAccounts] = useState<BrokerAccountPublic[]>([]);
+  const [wallets, setWallets] = useState<WalletPublic[]>([]);
   const [loading, setLoading] = useState(true);
   const [testingId, setTestingId] = useState<number | null>(null);
   const [modeId, setModeId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    brokerId: "binance",
-    accountName: "",
-    accountType: "spot",
-    environment: "mainnet",
-    apiKey: "",
-    apiSecret: "",
-    isPrimary: false,
-  });
+  const [connectingPhantom, setConnectingPhantom] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+
+  const isPhantom = form.brokerId === "phantom";
 
   const load = useCallback(async () => {
     const current = getUser();
@@ -45,11 +65,17 @@ export default function BrokerAccountsPanel() {
       return;
     }
     setLoading(true);
-    const res = await api.brokerAccounts.list();
-    if (res.success && res.data) {
-      setAccounts(res.data);
+    const [accountsRes, walletsRes] = await Promise.all([
+      api.brokerAccounts.list(),
+      api.wallets.list(),
+    ]);
+    if (accountsRes.success && accountsRes.data) {
+      setAccounts(accountsRes.data);
     } else {
-      toast.error(res.error || "No se pudieron cargar las cuentas");
+      toast.error(accountsRes.error || "No se pudieron cargar las cuentas");
+    }
+    if (walletsRes.success && Array.isArray(walletsRes.data)) {
+      setWallets(walletsRes.data);
     }
     setLoading(false);
   }, []);
@@ -57,6 +83,17 @@ export default function BrokerAccountsPanel() {
   useEffect(() => {
     load();
   }, [load]);
+
+  function selectBroker(brokerId: string) {
+    const current = getUser();
+    setForm((f) => ({
+      ...f,
+      brokerId,
+      accountType: brokerId === "mt5" ? "live" : "spot",
+      phantomUsername:
+        brokerId === "phantom" ? f.phantomUsername || current?.username || "" : f.phantomUsername,
+    }));
+  }
 
   async function handleTest(accountId: number) {
     const current = getUser();
@@ -112,10 +149,70 @@ export default function BrokerAccountsPanel() {
     else toast.error(res.error || "No se pudo eliminar la cuenta");
   }
 
+  async function handleWalletPrimary(id: number) {
+    const res = await api.wallets.setPrimary(id);
+    if (res.success) load();
+    else toast.error(res.error || "No se pudo marcar como principal");
+  }
+
+  async function handleWalletUnlink(id: number) {
+    if (!confirm("¿Desvincular esta billetera?")) return;
+    const res = await api.wallets.unlink(id);
+    if (res.success) {
+      await disconnectPhantom();
+      load();
+    } else {
+      toast.error(res.error || "No se pudo desvincular");
+    }
+  }
+
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     const current = getUser();
     if (!current) return;
+
+    if (isPhantom) {
+      const username = form.phantomUsername.trim();
+      if (!username) {
+        toast.error("Escribe el nombre de usuario");
+        return;
+      }
+      if (!isPhantomInstalled()) {
+        window.open("https://phantom.app/download", "_blank", "noreferrer");
+        toast.info("Instala Phantom y recarga esta pestaña");
+        return;
+      }
+      setConnectingPhantom(true);
+      try {
+        const address = await connectPhantom();
+        setForm((f) => ({ ...f, phantomAccount: address }));
+        const nonceRes = await api.wallets.nonce(address);
+        if (!nonceRes.success || !nonceRes.data?.message) {
+          throw new Error(nonceRes.error || "No se pudo crear el nonce");
+        }
+        toast.info("Firma el mensaje en Phantom");
+        const signature = await signPhantomMessage(nonceRes.data.message);
+        const linkRes = await api.wallets.link({
+          address,
+          signature,
+          nonce: nonceRes.data.nonce,
+          issuedAt: nonceRes.data.issuedAt,
+          label: username,
+        });
+        if (!linkRes.success) {
+          throw new Error(linkRes.error || "No se pudo vincular Phantom");
+        }
+        setShowForm(false);
+        setForm(emptyForm);
+        toast.success("Phantom conectada");
+        load();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "No se pudo conectar Phantom");
+      }
+      setConnectingPhantom(false);
+      return;
+    }
+
     const res = await api.brokerAccounts.create({
       userId: current.id,
       brokerId: form.brokerId,
@@ -130,21 +227,15 @@ export default function BrokerAccountsPanel() {
     });
     if (res.success) {
       setShowForm(false);
-      setForm({
-        brokerId: "binance",
-        accountName: "",
-        accountType: "spot",
-        environment: "mainnet",
-        apiKey: "",
-        apiSecret: "",
-        isPrimary: false,
-      });
+      setForm(emptyForm);
       toast.success("Cuenta conectada");
       load();
     } else {
       toast.error(res.error || "Error al crear cuenta");
     }
   }
+
+  const empty = accounts.length === 0 && wallets.length === 0;
 
   return (
     <div className="space-y-4">
@@ -171,13 +262,7 @@ export default function BrokerAccountsPanel() {
               <label className="mb-1 block text-xs text-zinc-500">Broker</label>
               <select
                 value={form.brokerId}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    brokerId: e.target.value,
-                    accountType: e.target.value === "mt5" ? "live" : "spot",
-                  }))
-                }
+                onChange={(e) => selectBroker(e.target.value)}
                 className={inputClass}
               >
                 {BROKERS.map((b) => (
@@ -187,16 +272,41 @@ export default function BrokerAccountsPanel() {
                 ))}
               </select>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-zinc-500">Nombre</label>
-              <input
-                value={form.accountName}
-                onChange={(e) => setForm((f) => ({ ...f, accountName: e.target.value }))}
-                required
-                className={inputClass}
-              />
-            </div>
-            {form.brokerId !== "mt5" && (
+            {!isPhantom && (
+              <div>
+                <label className="mb-1 block text-xs text-zinc-500">Nombre</label>
+                <input
+                  value={form.accountName}
+                  onChange={(e) => setForm((f) => ({ ...f, accountName: e.target.value }))}
+                  required
+                  className={inputClass}
+                />
+              </div>
+            )}
+            {isPhantom && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-500">Nombre de usuario</label>
+                  <input
+                    value={form.phantomUsername}
+                    onChange={(e) => setForm((f) => ({ ...f, phantomUsername: e.target.value }))}
+                    required
+                    placeholder="Tu usuario en Orion"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-xs text-zinc-500">Cuenta</label>
+                  <input
+                    value={form.phantomAccount}
+                    readOnly
+                    placeholder="Se completa al conectar Phantom"
+                    className={inputClass}
+                  />
+                </div>
+              </>
+            )}
+            {form.brokerId !== "mt5" && !isPhantom && (
               <>
                 <div>
                   <label className="mb-1 block text-xs text-zinc-500">API Key</label>
@@ -222,27 +332,34 @@ export default function BrokerAccountsPanel() {
           </div>
           <button
             type="submit"
-            className="w-full rounded-lg bg-gold/20 px-4 py-2 text-sm font-medium text-gold sm:w-auto"
+            disabled={connectingPhantom}
+            className="w-full rounded-lg bg-gold/20 px-4 py-2 text-sm font-medium text-gold disabled:opacity-40 sm:w-auto"
           >
-            Guardar
+            {isPhantom
+              ? connectingPhantom
+                ? "Abriendo Phantom..."
+                : "Conectar Phantom"
+              : "Guardar"}
           </button>
           <p className="text-[11px] text-zinc-500">
-            Pega las API keys reales. La cuenta nace en DEMO: prueba de conexión al broker, órdenes simuladas.
+            {isPhantom
+              ? "Phantom pedirá permiso y una firma. El campo cuenta se llena con tu dirección pública."
+              : "Pega las API keys reales. La cuenta nace en DEMO: prueba de conexión al broker, órdenes simuladas."}
           </p>
         </form>
       )}
 
       {loading ? (
         <p className="text-sm text-zinc-500">Cargando...</p>
-      ) : accounts.length === 0 ? (
+      ) : empty ? (
         <p className="rounded-lg border border-zinc-800 px-4 py-6 text-center text-sm text-zinc-500">
-          Sin cuentas. Conecta Binance, Bybit o MT5 con tus keys reales; empieza en DEMO.
+          Sin cuentas. Conecta Binance, Bybit, MT5 o Phantom; empieza en DEMO.
         </p>
       ) : (
         <div className="space-y-2">
           {accounts.map((acc) => (
             <div
-              key={acc.id}
+              key={`broker-${acc.id}`}
               className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
             >
               <div className="min-w-0">
@@ -300,6 +417,33 @@ export default function BrokerAccountsPanel() {
                 )}
                 <button type="button" onClick={() => handleDelete(acc.id)} className="text-red-400">
                   Eliminar
+                </button>
+              </div>
+            </div>
+          ))}
+          {wallets.map((wallet) => (
+            <div
+              key={`wallet-${wallet.id}`}
+              className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-white">
+                  {wallet.label || "Phantom"}
+                  {wallet.isPrimary && <span className="ml-2 text-xs text-gold">principal</span>}
+                  <span className="ml-2 text-[10px] font-bold uppercase text-amber-300">DEMO</span>
+                </div>
+                <div className="font-mono text-xs text-zinc-500" title={wallet.address}>
+                  PHANTOM · {shortAddr(wallet.address)}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-3 text-xs sm:justify-end">
+                {!wallet.isPrimary && (
+                  <button type="button" onClick={() => void handleWalletPrimary(wallet.id)} className="text-zinc-400">
+                    Principal
+                  </button>
+                )}
+                <button type="button" onClick={() => void handleWalletUnlink(wallet.id)} className="text-red-400">
+                  Desvincular
                 </button>
               </div>
             </div>
