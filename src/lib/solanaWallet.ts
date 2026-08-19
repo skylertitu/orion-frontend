@@ -8,6 +8,10 @@ export type PhantomProvider = {
   connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString(): string } }>;
   disconnect?: () => Promise<void>;
   signTransaction: (tx: VersionedTransaction) => Promise<VersionedTransaction>;
+  signMessage?: (
+    message: Uint8Array,
+    display?: "utf8" | "hex"
+  ) => Promise<{ signature: Uint8Array; publicKey?: { toString(): string } }>;
   on?: (event: "connect" | "disconnect" | "accountChanged", handler: (pubkey?: { toString(): string } | null) => void) => void;
   off?: (event: "connect" | "disconnect" | "accountChanged", handler: (pubkey?: { toString(): string } | null) => void) => void;
 };
@@ -83,7 +87,7 @@ export async function reconnectPhantom(): Promise<string> {
     const res = await phantom.connect({ onlyIfTrusted: true });
     return addressOf(phantom, res.publicKey);
   } catch {
-    return phantom.publicKey?.toString() || "";
+    return addressOf(phantom);
   }
 }
 
@@ -117,4 +121,14 @@ export async function signJupiterTransaction(transactionBase64: string): Promise
   const tx = VersionedTransaction.deserialize(base64ToBytes(transactionBase64));
   const signed = await phantom.signTransaction(tx);
   return bytesToBase64(signed.serialize());
+}
+
+export async function signPhantomMessage(message: string): Promise<string> {
+  const phantom = getPhantom();
+  if (!phantom?.signMessage) {
+    throw new Error("Phantom no soporta signMessage en este navegador");
+  }
+  const encoded = new TextEncoder().encode(message);
+  const signed = await phantom.signMessage(encoded, "utf8");
+  return bytesToBase64(signed.signature);
 }

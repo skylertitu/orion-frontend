@@ -65,7 +65,8 @@ export default function MotorIntegrations() {
           <div>
             <h3 className="font-bold text-white">Jupiter (Solana)</h3>
             <p className="text-xs text-zinc-500">
-              Precios y rutas de swap. Crea la key en portal.jup.ag → API Keys y pégala aquí. El swap se firma con Phantom en la pestaña Jupiter.
+              Precios y rutas de swap. Crea la key en portal.jup.ag → API Keys y pégala aquí.
+              Demo usa Devnet + simulación; Live pide firma Phantom en Mainnet.
             </p>
           </div>
           <span
@@ -92,6 +93,9 @@ export default function MotorIntegrations() {
             : jupiter?.error ||
               (jupiter?.sample ? `SOL $${jupiter.sample.usdPrice.toFixed(2)}` : "Esperando ping")}
           {jupiter?.keyHint ? ` · key ${jupiter.keyHint} (${jupiter.keySource})` : ""}
+          {jupiter?.solana
+            ? ` · ${jupiter.solana.cluster}/${jupiter.solana.executionMode} RPC ${jupiter.solana.rpcOk ? "ok" : "caído"}`
+            : ""}
         </p>
         <form onSubmit={saveKey} className="mt-4 flex flex-col gap-2 sm:flex-row">
           <input

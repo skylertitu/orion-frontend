@@ -1,13 +1,22 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, type JupiterPriceRow, type JupiterQuote, type WalletTransferPublic } from "@/lib/api";
+import {
+  api,
+  type JupiterPriceRow,
+  type JupiterQuote,
+  type SolanaBalance,
+  type SolanaNetworkStatus,
+  type WalletPublic,
+  type WalletTransferPublic,
+} from "@/lib/api";
 import {
   connectPhantom,
   disconnectPhantom,
   isPhantomInstalled,
   reconnectPhantom,
   signJupiterTransaction,
+  signPhantomMessage,
   waitForPhantom,
 } from "@/lib/solanaWallet";
 import { toast } from "@/lib/toast";
@@ -22,14 +31,26 @@ function shortAddr(address: string): string {
   return `${address.slice(0, 4)}…${address.slice(-4)}`;
 }
 
+function explorerTx(hash: string, cluster?: string): string {
+  if (hash.startsWith("http")) return hash;
+  if (hash.startsWith("SIMULATED-")) return "";
+  const base = `https://solscan.io/tx/${hash}`;
+  return cluster && cluster !== "mainnet-beta" ? `${base}?cluster=${cluster}` : base;
+}
+
 export default function JupiterMarketsPanel() {
   const [prices, setPrices] = useState<JupiterPriceRow[]>([]);
   const [quote, setQuote] = useState<JupiterQuote | null>(null);
   const [swaps, setSwaps] = useState<WalletTransferPublic[]>([]);
+  const [network, setNetwork] = useState<SolanaNetworkStatus | null>(null);
+  const [linked, setLinked] = useState<WalletPublic | null>(null);
+  const [balance, setBalance] = useState<SolanaBalance | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [swapping, setSwapping] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [airdropping, setAirdropping] = useState(false);
   const [wallet, setWallet] = useState("");
   const [phantomInstalled, setPhantomInstalled] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -38,11 +59,25 @@ export default function JupiterMarketsPanel() {
   const [output, setOutput] = useState("USDC");
   const [amount, setAmount] = useState("0.1");
 
+  const demoMode = (network?.executionMode || "demo") !== "live";
+  const cluster = network?.cluster || "devnet";
+
+  const loadBalance = useCallback(async (address: string) => {
+    if (!address) {
+      setBalance(null);
+      return;
+    }
+    const res = await api.wallets.balance(address);
+    if (res.success && res.data) setBalance(res.data);
+  }, []);
+
   const load = useCallback(async (notify = false) => {
     setLoading(true);
-    const [priceRes, transferRes] = await Promise.all([
+    const [priceRes, transferRes, networkRes, walletsRes] = await Promise.all([
       api.jupiter.prices(),
       api.wallets.transfers(),
+      api.wallets.network(),
+      api.wallets.list(),
     ]);
     if (priceRes.success && Array.isArray(priceRes.data)) {
       setPrices(priceRes.data);
@@ -54,8 +89,40 @@ export default function JupiterMarketsPanel() {
     if (transferRes.success && Array.isArray(transferRes.data)) {
       setSwaps(transferRes.data.filter((row) => row.type === "swap").slice(0, 6));
     }
+    if (networkRes.success && networkRes.data) setNetwork(networkRes.data);
+    if (walletsRes.success && Array.isArray(walletsRes.data)) {
+      const primary = walletsRes.data.find((row) => row.isPrimary) || walletsRes.data[0] || null;
+      setLinked(primary);
+    }
     setLoading(false);
   }, []);
+
+  async function linkWallet(address: string, notify = true) {
+    setLinking(true);
+    try {
+      const nonceRes = await api.wallets.nonce(address);
+      if (!nonceRes.success || !nonceRes.data?.message) {
+        throw new Error(nonceRes.error || "No se pudo crear el nonce");
+      }
+      toast.info("Firma el mensaje en Phantom para vincular la wallet");
+      const signature = await signPhantomMessage(nonceRes.data.message);
+      const linkRes = await api.wallets.link({
+        address,
+        signature,
+        nonce: nonceRes.data.nonce,
+        issuedAt: nonceRes.data.issuedAt,
+        label: "Phantom",
+      });
+      if (!linkRes.success || !linkRes.data) {
+        throw new Error(linkRes.error || "No se pudo vincular la billetera");
+      }
+      setLinked(linkRes.data);
+      if (notify) toast.success("Billetera verificada y vinculada a tu usuario");
+    } catch (err) {
+      if (notify) toast.error(err instanceof Error ? err.message : "No se firmó el mensaje");
+    }
+    setLinking(false);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +137,10 @@ export default function JupiterMarketsPanel() {
         const next = pubkey?.toString() || phantom.publicKey?.toString() || "";
         if (next) setWallet(next);
       };
-      const onDisconnect = () => setWallet("");
+      const onDisconnect = () => {
+        setWallet("");
+        setBalance(null);
+      };
       const onAccount = (pubkey?: { toString(): string } | null) => {
         setWallet(pubkey?.toString() || "");
       };
@@ -104,6 +174,10 @@ export default function JupiterMarketsPanel() {
     };
   }, [load]);
 
+  useEffect(() => {
+    if (wallet) void loadBalance(wallet);
+  }, [wallet, loadBalance]);
+
   async function handleConnect() {
     setPhantomInstalled(isPhantomInstalled());
     if (!isPhantomInstalled()) {
@@ -116,6 +190,9 @@ export default function JupiterMarketsPanel() {
       const address = await connectPhantom();
       setWallet(address);
       toast.success(`Phantom ${shortAddr(address)}`);
+      if (!linked || linked.address !== address) {
+        await linkWallet(address);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo abrir Phantom");
     }
@@ -125,7 +202,25 @@ export default function JupiterMarketsPanel() {
   async function handleDisconnect() {
     await disconnectPhantom();
     setWallet("");
+    setBalance(null);
     toast.success("Phantom desconectado de esta sesión");
+  }
+
+  async function handleAirdrop() {
+    if (!wallet) {
+      toast.error("Conecta Phantom primero");
+      return;
+    }
+    setAirdropping(true);
+    const res = await api.wallets.airdrop(wallet, 1);
+    if (res.success && res.data) {
+      setBalance(res.data);
+      toast.success(`+1 SOL de prueba en ${res.data.cluster}`);
+    } else {
+      toast.error(res.error || "El RPC no dio airdrop. Usa faucet.solana.com");
+      if (network?.faucetUrl) window.open(network.faucetUrl, "_blank", "noreferrer");
+    }
+    setAirdropping(false);
   }
 
   async function requestQuote(e: FormEvent) {
@@ -153,6 +248,16 @@ export default function JupiterMarketsPanel() {
     }
     setSwapping(true);
     try {
+      if (demoMode) {
+        const exec = await api.jupiter.simulate({ taker: wallet, input, output, amount: qty });
+        if (!exec.success || exec.data?.status !== "Success") {
+          throw new Error(exec.error || exec.data?.error || "No se simuló el swap");
+        }
+        setLastTx(exec.data.signature || "");
+        toast.success(exec.message || "Swap DEMO simulado");
+        void load(false);
+        return;
+      }
       const orderRes = await api.jupiter.order(input, output, qty, wallet);
       if (!orderRes.success || !orderRes.data?.transaction || !orderRes.data.requestId) {
         throw new Error(orderRes.error || "Jupiter no armó la transacción");
@@ -171,7 +276,7 @@ export default function JupiterMarketsPanel() {
       if (!exec.success || exec.data?.status !== "Success") {
         throw new Error(exec.error || exec.data?.error || "El swap no se confirmó");
       }
-      setLastTx(exec.data.signature || exec.data.solscanUrl || "");
+      setLastTx(exec.data.solscanUrl || exec.data.signature || "");
       toast.success(exec.message || "Swap confirmado on-chain");
       void load(false);
     } catch (err) {
@@ -182,7 +287,9 @@ export default function JupiterMarketsPanel() {
 
   const symbols = prices.length ? prices.map((p) => p.symbol) : ["SOL", "USDC", "USDT", "JUP"];
   const jupiterOk = prices.length > 0;
+  const walletLinked = Boolean(linked && wallet && linked.address === wallet);
   const phase0Ready = phantomInstalled && Boolean(wallet) && jupiterOk;
+  const lastTxUrl = lastTx ? explorerTx(lastTx, cluster) : "";
 
   return (
     <div className="space-y-5">
@@ -190,7 +297,9 @@ export default function JupiterMarketsPanel() {
         <div>
           <h2 className="text-lg font-black text-white">Mercados Jupiter</h2>
           <p className="text-sm text-zinc-400">
-            Fase 0: instala Phantom, conéctalo y pulsa Ver ruta. Eso no gasta SOL. Ejecutar swap sí es on-chain.
+            {demoMode
+              ? "Demo/Devnet: conecta Phantom, firma el nonce y simula swaps sin fondos reales."
+              : "Live/Mainnet: cada swap pide aprobación en Phantom y mueve fondos reales."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -206,11 +315,13 @@ export default function JupiterMarketsPanel() {
           <button
             type="button"
             onClick={() => void handleConnect()}
-            disabled={connecting}
+            disabled={connecting || linking}
             className="rounded-xl border border-zinc-700 px-3 py-2 text-[11px] font-bold uppercase text-zinc-200 hover:border-gold hover:text-gold disabled:opacity-40"
           >
-            {connecting
-              ? "Abriendo Phantom..."
+            {connecting || linking
+              ? linking
+                ? "Firmando..."
+                : "Abriendo Phantom..."
               : wallet
                 ? shortAddr(wallet)
                 : phantomInstalled
@@ -220,9 +331,25 @@ export default function JupiterMarketsPanel() {
         </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-xs text-zinc-400">
+        <p>
+          Red Orion: <span className="font-bold text-white uppercase">{cluster}</span>
+          {" · "}
+          modo <span className="font-bold text-white uppercase">{network?.executionMode || "demo"}</span>
+          {network?.rpcHost ? ` · RPC ${network.rpcHost}` : ""}
+          {balance ? ` · saldo ${balance.sol.toFixed(4)} SOL` : ""}
+        </p>
+        <p className="mt-1">{network?.phantomHint}</p>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <PhaseCheck ok={phantomInstalled} label="Extensión Phantom" detail={phantomInstalled ? "Detectada" : "No está en este navegador"} />
         <PhaseCheck ok={Boolean(wallet)} label="Sesión Phantom" detail={wallet ? shortAddr(wallet) : "Pendiente de conectar"} />
+        <PhaseCheck
+          ok={walletLinked}
+          label="Firma / usuario"
+          detail={walletLinked ? "Wallet vinculada" : linking ? "Esperando firma" : "Falta signMessage"}
+        />
         <PhaseCheck
           ok={jupiterOk}
           label="Jupiter API"
@@ -231,8 +358,49 @@ export default function JupiterMarketsPanel() {
       </div>
       {phase0Ready && (
         <p className="text-xs text-emerald-400">
-          Fase 0 lista. Siguiente: Ver ruta (cotizar). Vincular la wallet a tu usuario es la fase 1.
+          {walletLinked
+            ? demoMode
+              ? "Listo para prácticas: Ver ruta y Simular swap. El airdrop pide SOL de Devnet."
+              : "Wallet vinculada. Ver ruta no gasta SOL. Ejecutar swap sí es on-chain."
+            : "Phantom conectado. Pulsa Conectar otra vez o Vincular para firmar el nonce."}
         </p>
+      )}
+
+      {wallet && (
+        <div className="flex flex-wrap gap-2">
+          {!walletLinked && (
+            <button
+              type="button"
+              disabled={linking}
+              onClick={() => void linkWallet(wallet)}
+              className="rounded-xl border border-gold/40 px-3 py-2 text-[11px] font-bold uppercase text-gold disabled:opacity-40"
+            >
+              {linking ? "Firmando..." : "Vincular con firma"}
+            </button>
+          )}
+          {demoMode && (
+            <>
+              <button
+                type="button"
+                disabled={airdropping}
+                onClick={() => void handleAirdrop()}
+                className="rounded-xl border border-zinc-700 px-3 py-2 text-[11px] font-bold uppercase text-zinc-200 disabled:opacity-40"
+              >
+                {airdropping ? "Pidiendo SOL..." : "Airdrop Devnet"}
+              </button>
+              {network?.faucetUrl && (
+                <a
+                  href={network.faucetUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-xl border border-zinc-700 px-3 py-2 text-[11px] font-bold uppercase text-zinc-400 hover:text-white"
+                >
+                  Faucet web
+                </a>
+              )}
+            </>
+          )}
+        </div>
       )}
 
       <div className="overflow-x-auto rounded-2xl border border-zinc-800 bg-zinc-950">
@@ -319,11 +487,13 @@ export default function JupiterMarketsPanel() {
             onClick={() => void handleSwap()}
             className="rounded-xl bg-gold px-4 py-2 text-[11px] font-bold uppercase text-black disabled:opacity-40"
           >
-            {swapping ? "Ejecutando..." : "Ejecutar swap"}
+            {swapping ? "Ejecutando..." : demoMode ? "Simular swap" : "Ejecutar swap"}
           </button>
         </div>
         <p className="text-[11px] text-zinc-500">
-          Ver ruta solo consulta Jupiter. Ejecutar swap pide firma en Phantom y mueve fondos reales.
+          {demoMode
+            ? "Ver ruta consulta Jupiter. Simular swap registra un fill DEMO; no mueve SOL."
+            : "Ver ruta solo consulta Jupiter. Ejecutar swap pide firma en Phantom y mueve fondos reales."}
         </p>
         {quote && (
           <p className="text-sm text-zinc-300">
@@ -331,9 +501,9 @@ export default function JupiterMarketsPanel() {
             {quote.priceImpactPct != null ? ` · impacto ${Number(quote.priceImpactPct).toFixed(3)}%` : ""}
           </p>
         )}
-        {lastTx && (
+        {lastTxUrl && (
           <a
-            href={lastTx.startsWith("http") ? lastTx : `https://solscan.io/tx/${lastTx}`}
+            href={lastTxUrl}
             target="_blank"
             rel="noreferrer"
             className="inline-block text-[11px] font-bold text-gold hover:underline"
@@ -341,29 +511,33 @@ export default function JupiterMarketsPanel() {
             Ver en Solscan
           </a>
         )}
+        {lastTx.startsWith("SIMULATED-") && (
+          <p className="text-[11px] font-mono text-emerald-400">Fill DEMO {lastTx}</p>
+        )}
       </form>
 
       {swaps.length > 0 && (
         <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
           <h3 className="text-sm font-bold text-white">Últimos swaps</h3>
           <ul className="mt-3 space-y-2 text-xs text-zinc-400">
-            {swaps.map((row) => (
-              <li key={row.id} className="flex items-center justify-between gap-2">
-                <span>
-                  {row.asset} · {row.amount} · {row.status}
-                </span>
-                {row.txHash && (
-                  <a
-                    href={`https://solscan.io/tx/${row.txHash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-mono text-gold hover:underline"
-                  >
-                    {shortAddr(row.txHash)}
-                  </a>
-                )}
-              </li>
-            ))}
+            {swaps.map((row) => {
+              const href = row.txHash ? explorerTx(row.txHash, cluster) : "";
+              return (
+                <li key={row.id} className="flex items-center justify-between gap-2">
+                  <span>
+                    {row.asset} · {row.amount} · {row.status}
+                    {row.note?.startsWith("DEMO") ? " · DEMO" : ""}
+                  </span>
+                  {href ? (
+                    <a href={href} target="_blank" rel="noreferrer" className="font-mono text-gold hover:underline">
+                      {shortAddr(row.txHash || "")}
+                    </a>
+                  ) : row.txHash ? (
+                    <span className="font-mono text-zinc-500">{shortAddr(row.txHash)}</span>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

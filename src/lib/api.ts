@@ -219,6 +219,34 @@ export const api = {
   wallets: {
     list: () => request<WalletPublic[]>("/wallets"),
     transfers: () => request<WalletTransferPublic[]>("/wallets/transfers"),
+    network: () => request<SolanaNetworkStatus>("/wallets/network"),
+    balance: (address: string) =>
+      request<SolanaBalance>(`/wallets/balance?address=${encodeURIComponent(address)}`),
+    airdrop: (address: string, amount = 1) =>
+      request<SolanaBalance & { signature?: string; faucetUrl?: string }>("/wallets/airdrop", {
+        method: "POST",
+        body: JSON.stringify({ address, amount }),
+        timeoutMs: 30000,
+      }),
+    nonce: (address: string) =>
+      request<WalletNoncePayload>("/wallets/nonce", {
+        method: "POST",
+        body: JSON.stringify({ address }),
+      }),
+    link: (payload: {
+      address: string;
+      signature: string;
+      nonce: string;
+      issuedAt: string;
+      label?: string;
+    }) =>
+      request<WalletPublic>("/wallets/link", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    setPrimary: (id: number) =>
+      request<WalletPublic>(`/wallets/${id}/primary`, { method: "POST" }),
+    unlink: (id: number) => request(`/wallets/${id}`, { method: "DELETE" }),
   },
   indicators: {
     mine: () => request<ServerIndicator[]>("/indicators/mine"),
@@ -346,6 +374,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload),
         timeoutMs: 50000,
+      }),
+    simulate: (payload: { taker: string; input: string; output: string; amount: number }) =>
+      request<JupiterExecuteResult>("/jupiter/simulate", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        timeoutMs: 20000,
       }),
   },
 };
@@ -573,6 +607,13 @@ export interface JupiterStatus {
   keyHint: string | null;
   error?: string;
   sample?: { symbol: string; usdPrice: number };
+  solana?: {
+    cluster: string;
+    executionMode: string;
+    rpcOk: boolean;
+    rpcHost: string;
+    error?: string;
+  };
 }
 
 export interface JupiterPriceRow {
@@ -609,6 +650,9 @@ export interface JupiterExecuteResult {
   signature?: string;
   error?: string;
   solscanUrl?: string;
+  simulated?: boolean;
+  cluster?: string;
+  executionMode?: string;
 }
 
 export interface WalletPublic {
@@ -616,6 +660,36 @@ export interface WalletPublic {
   address: string;
   label: string | null;
   isPrimary: boolean;
+}
+
+export interface WalletNoncePayload {
+  nonce: string;
+  issuedAt: string;
+  expiresAt: string;
+  chain: "solana";
+  address: string;
+  message: string;
+  cluster?: string;
+  executionMode?: string;
+}
+
+export interface SolanaNetworkStatus {
+  cluster: string;
+  executionMode: "demo" | "live" | string;
+  rpcHost: string;
+  faucetUrl: string | null;
+  phantomHint: string;
+}
+
+export interface SolanaBalance {
+  address: string;
+  cluster: string;
+  executionMode?: string;
+  lamports: number;
+  sol: number;
+  explorerUrl?: string;
+  signature?: string;
+  faucetUrl?: string;
 }
 
 export interface WalletTransferPublic {
