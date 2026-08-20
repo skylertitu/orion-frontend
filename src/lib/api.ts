@@ -369,13 +369,14 @@ export const api = {
       input: string;
       output: string;
       amount: number;
+      walletLabel?: string;
     }) =>
       request<JupiterExecuteResult>("/jupiter/execute", {
         method: "POST",
         body: JSON.stringify(payload),
         timeoutMs: 50000,
       }),
-    simulate: (payload: { taker: string; input: string; output: string; amount: number }) =>
+    simulate: (payload: { taker: string; input: string; output: string; amount: number; walletLabel?: string }) =>
       request<JupiterExecuteResult>("/jupiter/simulate", {
         method: "POST",
         body: JSON.stringify(payload),

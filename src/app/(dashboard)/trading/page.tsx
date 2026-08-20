@@ -8,6 +8,7 @@ import SystemControlBoard from "@/components/SystemControlBoard";
 import ModuleGate from "@/components/ModuleGate";
 import MotorIntegrations from "@/components/MotorIntegrations";
 import JupiterMarketsPanel from "@/components/JupiterMarketsPanel";
+import WalletBadge from "@/components/WalletBadge";
 import { api, type BrokerAccountPublic, type BrokerStatus } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import { toast } from "@/lib/toast";
@@ -278,6 +279,7 @@ export default function TradingPage() {
               : "Elige cuenta, par y cantidad, envía la orden al broker y sigue el resultado en la gráfica."}
           </p>
         </div>
+        <WalletBadge />
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-zinc-800 pb-3">

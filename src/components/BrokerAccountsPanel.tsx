@@ -9,6 +9,10 @@ import {
   disconnectPhantom,
   isPhantomInstalled,
   signPhantomMessage,
+  connectSolflare,
+  disconnectSolflare,
+  isSolflareInstalled,
+  signSolflareMessage,
 } from "@/lib/solanaWallet";
 
 const BROKERS = [
@@ -16,6 +20,7 @@ const BROKERS = [
   { id: "bybit", label: "Bybit" },
   { id: "mt5", label: "MetaTrader 5" },
   { id: "phantom", label: "Phantom" },
+  { id: "solflare", label: "Solflare" },
 ] as const;
 
 const inputClass =
@@ -43,6 +48,8 @@ const emptyForm = {
   isPrimary: false,
   phantomUsername: "",
   phantomAccount: "",
+  solflareUsername: "",
+  solflareAccount: "",
 };
 
 export default function BrokerAccountsPanel() {
@@ -53,9 +60,12 @@ export default function BrokerAccountsPanel() {
   const [modeId, setModeId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [connectingPhantom, setConnectingPhantom] = useState(false);
+  const [connectingSolflare, setConnectingSolflare] = useState(false);
   const [form, setForm] = useState(emptyForm);
 
   const isPhantom = form.brokerId === "phantom";
+  const isSolflare = form.brokerId === "solflare";
+  const isWalletBroker = isPhantom || isSolflare;
 
   const load = useCallback(async () => {
     const current = getUser();
@@ -92,6 +102,8 @@ export default function BrokerAccountsPanel() {
       accountType: brokerId === "mt5" ? "live" : "spot",
       phantomUsername:
         brokerId === "phantom" ? f.phantomUsername || current?.username || "" : f.phantomUsername,
+      solflareUsername:
+        brokerId === "solflare" ? f.solflareUsername || current?.username || "" : f.solflareUsername,
     }));
   }
 
@@ -160,6 +172,7 @@ export default function BrokerAccountsPanel() {
     const res = await api.wallets.unlink(id);
     if (res.success) {
       await disconnectPhantom();
+      await disconnectSolflare();
       load();
     } else {
       toast.error(res.error || "No se pudo desvincular");
@@ -178,7 +191,6 @@ export default function BrokerAccountsPanel() {
         return;
       }
       if (!isPhantomInstalled()) {
-        window.open("https://phantom.app/download", "_blank", "noreferrer");
         toast.info("Instala Phantom y recarga esta pestaña");
         return;
       }
@@ -197,7 +209,7 @@ export default function BrokerAccountsPanel() {
           signature,
           nonce: nonceRes.data.nonce,
           issuedAt: nonceRes.data.issuedAt,
-          label: username,
+          label: "Phantom",
         });
         if (!linkRes.success) {
           throw new Error(linkRes.error || "No se pudo vincular Phantom");
@@ -210,6 +222,47 @@ export default function BrokerAccountsPanel() {
         toast.error(err instanceof Error ? err.message : "No se pudo conectar Phantom");
       }
       setConnectingPhantom(false);
+      return;
+    }
+
+    if (isSolflare) {
+      const username = form.solflareUsername.trim();
+      if (!username) {
+        toast.error("Escribe el nombre de usuario");
+        return;
+      }
+      if (!isSolflareInstalled()) {
+        toast.info("Instala Solflare y recarga esta pestaña");
+        return;
+      }
+      setConnectingSolflare(true);
+      try {
+        const address = await connectSolflare();
+        setForm((f) => ({ ...f, solflareAccount: address }));
+        const nonceRes = await api.wallets.nonce(address);
+        if (!nonceRes.success || !nonceRes.data?.message) {
+          throw new Error(nonceRes.error || "No se pudo crear el nonce");
+        }
+        toast.info("Firma el mensaje en Solflare");
+        const signature = await signSolflareMessage(nonceRes.data.message);
+        const linkRes = await api.wallets.link({
+          address,
+          signature,
+          nonce: nonceRes.data.nonce,
+          issuedAt: nonceRes.data.issuedAt,
+          label: "Solflare",
+        });
+        if (!linkRes.success) {
+          throw new Error(linkRes.error || "No se pudo vincular Solflare");
+        }
+        setShowForm(false);
+        setForm(emptyForm);
+        toast.success("Solflare conectada");
+        load();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "No se pudo conectar Solflare");
+      }
+      setConnectingSolflare(false);
       return;
     }
 
@@ -272,7 +325,7 @@ export default function BrokerAccountsPanel() {
                 ))}
               </select>
             </div>
-            {!isPhantom && (
+            {!isWalletBroker && (
               <div>
                 <label className="mb-1 block text-xs text-zinc-500">Nombre</label>
                 <input
@@ -306,7 +359,30 @@ export default function BrokerAccountsPanel() {
                 </div>
               </>
             )}
-            {form.brokerId !== "mt5" && !isPhantom && (
+            {isSolflare && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs text-zinc-500">Nombre de usuario</label>
+                  <input
+                    value={form.solflareUsername}
+                    onChange={(e) => setForm((f) => ({ ...f, solflareUsername: e.target.value }))}
+                    required
+                    placeholder="Tu usuario en Orion"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-xs text-zinc-500">Cuenta</label>
+                  <input
+                    value={form.solflareAccount}
+                    readOnly
+                    placeholder="Se completa al conectar Solflare"
+                    className={inputClass}
+                  />
+                </div>
+              </>
+            )}
+            {form.brokerId !== "mt5" && !isWalletBroker && (
               <>
                 <div>
                   <label className="mb-1 block text-xs text-zinc-500">API Key</label>
@@ -332,18 +408,22 @@ export default function BrokerAccountsPanel() {
           </div>
           <button
             type="submit"
-            disabled={connectingPhantom}
+            disabled={connectingPhantom || connectingSolflare}
             className="w-full rounded-lg bg-gold/20 px-4 py-2 text-sm font-medium text-gold disabled:opacity-40 sm:w-auto"
           >
             {isPhantom
               ? connectingPhantom
                 ? "Abriendo Phantom..."
                 : "Conectar Phantom"
-              : "Guardar"}
+              : isSolflare
+                ? connectingSolflare
+                  ? "Abriendo Solflare..."
+                  : "Conectar Solflare"
+                : "Guardar"}
           </button>
           <p className="text-[11px] text-zinc-500">
-            {isPhantom
-              ? "Phantom pedirá permiso y una firma. El campo cuenta se llena con tu dirección pública."
+            {isWalletBroker
+              ? `${isPhantom ? "Phantom" : "Solflare"} pedirá permiso y una firma. El campo cuenta se llena con tu dirección pública.`
               : "Pega las API keys reales. La cuenta nace en DEMO: prueba de conexión al broker, órdenes simuladas."}
           </p>
         </form>
