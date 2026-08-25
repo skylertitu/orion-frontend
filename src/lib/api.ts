@@ -1,6 +1,12 @@
 import { getToken, User } from "./auth";
 
-const API_BASE = "/api";
+function apiBase(): string {
+  const origin = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, "").trim();
+  if (origin) return `${origin}/api`;
+  return "/api";
+}
+
+const API_BASE = apiBase();
 
 export interface ApiResponse<T = unknown> {
   success: boolean;
@@ -26,7 +32,7 @@ async function request<T>(
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs ?? 15000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs ?? 45000);
 
   try {
     const res = await fetch(`${API_BASE}${endpoint}`, {
