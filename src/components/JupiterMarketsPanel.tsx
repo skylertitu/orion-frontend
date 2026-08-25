@@ -113,16 +113,17 @@ export default function JupiterMarketsPanel() {
     setLinking(true);
     try {
       const nonceRes = await api.wallets.nonce(address);
-      if (!nonceRes.success || !nonceRes.data?.message) {
+      const nonce = nonceRes.data;
+      if (!nonceRes.success || !nonce?.message) {
         throw new Error(nonceRes.error || "No se pudo crear el nonce");
       }
       toast.info(`Firma el mensaje en ${WALLET_META[name].label} para vincular la wallet`);
-      const signature = await signWalletMessage(nonceRes.data.message);
+      const signature = await signWalletMessage(nonce.message);
       const linkRes = await api.wallets.link({
         address,
         signature,
-        nonce: nonceRes.data.nonce,
-        issuedAt: nonceRes.data.issuedAt,
+        nonce: nonce.nonce,
+        issuedAt: nonce.issuedAt,
         label: WALLET_META[name].label,
       });
       if (!linkRes.success || !linkRes.data) {

@@ -1,4 +1,3 @@
-import type { User } from "./auth";
 import { isStaff, isSuperAdmin } from "./roles";
 
 export const USER_PLANS = ["analyst", "signals", "builder"] as const;
@@ -49,17 +48,22 @@ const ADMIN_CAPABILITIES: PlanCapability[] = [
   "strategies_auto",
 ];
 
+type PlanBearer = {
+  role?: string;
+  plan?: string | null;
+} | null | undefined;
+
 export function isUserPlan(value: unknown): value is UserPlan {
   return typeof value === "string" && (USER_PLANS as readonly string[]).includes(value);
 }
 
-export function userPlan(user: User | null | undefined): UserPlan | null {
+export function userPlan(user: PlanBearer): UserPlan | null {
   if (!user) return null;
   if (isStaff(user)) return null;
   return isUserPlan(user.plan) ? user.plan : DEFAULT_USER_PLAN;
 }
 
-export function hasCapability(user: User | null | undefined, capability: PlanCapability): boolean {
+export function hasCapability(user: PlanBearer, capability: PlanCapability): boolean {
   if (!user) return false;
   if (isStaff(user)) return ADMIN_CAPABILITIES.includes(capability);
   const plan = userPlan(user);
@@ -67,11 +71,11 @@ export function hasCapability(user: User | null | undefined, capability: PlanCap
   return PLAN_CAPABILITIES[plan].includes(capability);
 }
 
-export function homePath(user: User | null | undefined): string {
+export function homePath(user: PlanBearer): string {
   return user ? "/mercado" : "/";
 }
 
-export function deskNavHrefs(user: User | null | undefined): string[] {
+export function deskNavHrefs(user: PlanBearer): string[] {
   if (!user) return [];
   if (isStaff(user)) {
     return [
@@ -87,7 +91,7 @@ export function deskNavHrefs(user: User | null | undefined): string[] {
   return ["/mercado", "/indicadores", "/senales", "/cuentas"];
 }
 
-export function deskMenuHrefs(user: User | null | undefined): string[] {
+export function deskMenuHrefs(user: PlanBearer): string[] {
   if (!user) return [];
   if (isSuperAdmin(user)) {
     return [...deskNavHrefs(user), "/admin", "/superadmin", "/ajustes", "/perfil"];
@@ -98,7 +102,7 @@ export function deskMenuHrefs(user: User | null | undefined): string[] {
   return ["/mercado", "/indicadores", "/senales", "/cuentas", "/perfil"];
 }
 
-export function canAccessPath(user: User | null | undefined, href: string): boolean {
+export function canAccessPath(user: PlanBearer, href: string): boolean {
   if (!user) return false;
   if (href === "/perfil" || href === "/ajustes") return true;
   if (href === "/dashboard") return isStaff(user);

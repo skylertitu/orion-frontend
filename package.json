@@ -4,9 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
+  },
+  "engines": {
+    "node": "20.x"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",

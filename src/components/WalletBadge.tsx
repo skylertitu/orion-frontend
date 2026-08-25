@@ -56,15 +56,16 @@ export default function WalletBadge() {
       setWalletName(active.name);
 
       const nonceRes = await api.wallets.nonce(active.address);
-      if (nonceRes.success && nonceRes.data?.message) {
+      const nonce = nonceRes.data;
+      if (nonceRes.success && nonce?.message) {
         const sig = await import("@/lib/solanaWallet").then((m) =>
-          m.signWalletMessage(nonceRes.data.message)
+          m.signWalletMessage(nonce.message)
         );
         await api.wallets.link({
           address: active.address,
           signature: sig,
-          nonce: nonceRes.data.nonce,
-          issuedAt: nonceRes.data.issuedAt,
+          nonce: nonce.nonce,
+          issuedAt: nonce.issuedAt,
           label: META[active.name].label,
         });
         setLinked(true);

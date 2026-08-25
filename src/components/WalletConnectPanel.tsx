@@ -131,19 +131,20 @@ export default function WalletConnectPanel() {
     try {
       const address = kind === "phantom" ? await connectPhantom() : await connectSolflare();
       const nonceRes = await api.wallets.nonce(address);
-      if (!nonceRes.success || !nonceRes.data?.message) {
+      const nonce = nonceRes.data;
+      if (!nonceRes.success || !nonce?.message) {
         throw new Error(nonceRes.error || "No se pudo crear el nonce");
       }
       toast.info(`Firma en ${app?.label}`);
       const signature =
         kind === "phantom"
-          ? await signPhantomMessage(nonceRes.data.message)
-          : await signSolflareMessage(nonceRes.data.message);
+          ? await signPhantomMessage(nonce.message)
+          : await signSolflareMessage(nonce.message);
       const linkRes = await api.wallets.link({
         address,
         signature,
-        nonce: nonceRes.data.nonce,
-        issuedAt: nonceRes.data.issuedAt,
+        nonce: nonce.nonce,
+        issuedAt: nonce.issuedAt,
         label: accountName.trim() || app?.label || "Solana",
       });
       if (!linkRes.success) {

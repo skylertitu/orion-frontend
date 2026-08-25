@@ -152,7 +152,7 @@ function bindName<T extends WalletProvider>(provider: T, name: WalletProviderNam
         ? (event: string, handler: (...args: unknown[]) => void) =>
             provider.off!.call(provider, event, handler)
         : undefined,
-  } as T;
+  } as unknown as T;
 }
 
 async function signProviderMessage(provider: WalletProvider, message: string): Promise<string> {
