@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { getToken } from './auth';
 
 export interface WsKlineData {
   symbol: string;
@@ -22,18 +21,12 @@ export interface WsMessage {
 }
 
 function getMarketWsUrl(): string {
-  let base: string;
   if (process.env.NEXT_PUBLIC_WS_URL) {
-    base = process.env.NEXT_PUBLIC_WS_URL;
-  } else {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const port = process.env.NEXT_PUBLIC_BACKEND_PORT || '3008';
-    base = `${protocol}//${window.location.hostname}:${port}/ws/market`;
+    return process.env.NEXT_PUBLIC_WS_URL;
   }
-  const token = getToken();
-  if (!token) return base;
-  const sep = base.includes('?') ? '&' : '?';
-  return `${base}${sep}token=${encodeURIComponent(token)}`;
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const port = process.env.NEXT_PUBLIC_BACKEND_PORT || '3008';
+  return `${protocol}//${window.location.hostname}:${port}/ws/market`;
 }
 
 interface UseMarketWsOptions {

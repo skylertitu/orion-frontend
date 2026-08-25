@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import PriceTrendChart from "@/components/PriceTrendChart";
 import { api, BrokerStatus, SignalRecord } from "@/lib/api";
-import { getUser } from "@/lib/auth";
+import { displayName as userDisplayName, getUser } from "@/lib/auth";
+import { isStaff } from "@/lib/roles";
 
 interface OpenPosition {
   ticket: string;
@@ -44,6 +46,7 @@ function greetingForHour(date = new Date()): string {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const user = getUser();
   const [timeStr, setTimeStr] = useState("--:--:--");
   const [brokers, setBrokers] = useState<BrokerStatus[]>([]);
@@ -51,6 +54,12 @@ export default function DashboardPage() {
   const [signals, setSignals] = useState<SignalRecord[]>([]);
   const [lucyPending, setLucyPending] = useState(true);
   const [backendOk, setBackendOk] = useState(false);
+
+  useEffect(() => {
+    if (!isStaff(user)) {
+      router.replace("/mercado");
+    }
+  }, [user, router]);
 
   useEffect(() => {
     const updateTime = () => {
@@ -131,7 +140,7 @@ export default function DashboardPage() {
   const connectedBrokers = brokers.filter((b) => b.connected);
   const uniquePairs = new Set(positions.map((p) => p.symbol)).size;
   const executedSignals = signals.filter((s) => s.executed).length;
-  const displayName = user?.firstName || user?.username || "trader";
+  const displayName = userDisplayName(user);
   const brokerCards = (brokers.length
     ? brokers
     : ([
@@ -139,6 +148,8 @@ export default function DashboardPage() {
         { id: "bybit", label: "Bybit", connected: false, enabled: false, message: "Cargando" },
         { id: "mt5", label: "MetaTrader 5", connected: false, enabled: false, message: "Cargando" },
       ] as BrokerStatus[]));
+
+  if (!isStaff(user)) return null;
 
   return (
     <div className="relative min-h-full min-w-0 overflow-hidden bg-[#07090e] font-sans text-white">

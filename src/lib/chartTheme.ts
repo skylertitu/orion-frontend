@@ -2,16 +2,16 @@ import { ColorType, type DeepPartial, type ChartOptions } from "lightweight-char
 
 /** Paleta inspirada en MetaTrader 5 (tema oscuro) */
 export const MT_CHART_THEME = {
-  background: "#0d0d0d",
-  text: "#b0b3b8",
-  grid: "#1f1f1f",
-  border: "#2a2a2a",
-  crosshair: "#6a6a6a",
-  up: "#089981",
-  down: "#f23645",
-  volumeUp: "rgba(8, 153, 129, 0.45)",
-  volumeDown: "rgba(242, 54, 69, 0.45)",
-  accent: "#4a9eff",
+  background: "#0a0a0a",
+  text: "#a1a1aa",
+  grid: "#1c1c1c",
+  border: "#27272a",
+  crosshair: "#71717a",
+  up: "#22c55e",
+  down: "#ef4444",
+  volumeUp: "rgba(34, 197, 94, 0.4)",
+  volumeDown: "rgba(239, 68, 68, 0.4)",
+  accent: "#eab308",
 } as const;
 
 export function mtChartOptions(width: number, height: number): DeepPartial<ChartOptions> {

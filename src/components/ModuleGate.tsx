@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { getUser } from "@/lib/auth";
+import { isStaff } from "@/lib/roles";
 
 export default function ModuleGate({
   moduleId,
@@ -12,7 +13,7 @@ export default function ModuleGate({
   children: ReactNode;
 }) {
   const user = getUser();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = isStaff(user);
   const [blocked, setBlocked] = useState(false);
   const [name, setName] = useState(moduleId);
 

@@ -182,6 +182,10 @@ export function isPhantomInstalled(): boolean {
   return Boolean(getPhantom());
 }
 
+export function looksLikeSolanaAddress(address: string): boolean {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address.trim());
+}
+
 export function getPhantom(): PhantomProvider | null {
   if (typeof window === "undefined") return null;
   const fromNamespace = window.phantom?.solana;

@@ -1,7 +1,10 @@
 import { api, type ServerIndicator } from "@/lib/api";
+import { getUser } from "@/lib/auth";
+import { hasCapability } from "@/lib/plans";
 import {
   loadIndicatorScripts,
   saveIndicatorScripts,
+  normalizeIndicatorCategory,
   type IndicatorScript,
 } from "@/lib/indicatorScript";
 
@@ -15,12 +18,14 @@ function fromServer(row: ServerIndicator): IndicatorScript {
     enabled: row.enabled && !row.blocked,
     blocked: row.blocked,
     sourceHash: row.sourceHash,
+    category: normalizeIndicatorCategory(row.category, row.name, row.source),
   };
 }
 
 export function persistIndicatorScripts(scripts: IndicatorScript[]): void {
   saveIndicatorScripts(scripts);
   if (typeof window === "undefined") return;
+  if (!hasCapability(getUser(), "indicators_editor")) return;
   clearTimeout(syncTimer);
   syncTimer = setTimeout(() => {
     void api.indicators.saveMine(
@@ -29,6 +34,7 @@ export function persistIndicatorScripts(scripts: IndicatorScript[]): void {
         name: s.name,
         source: s.source,
         enabled: s.enabled,
+        category: s.category || "custom",
       }))
     );
   }, 350);
@@ -36,6 +42,7 @@ export function persistIndicatorScripts(scripts: IndicatorScript[]): void {
 
 export async function hydrateIndicatorScripts(): Promise<IndicatorScript[]> {
   const local = loadIndicatorScripts();
+  if (!hasCapability(getUser(), "indicators_library")) return local;
   const res = await api.indicators.mine();
   if (res.success && Array.isArray(res.data) && res.data.length > 0) {
     const next = res.data.map(fromServer);

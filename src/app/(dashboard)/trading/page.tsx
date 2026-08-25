@@ -6,12 +6,16 @@ import LiveChart from "@/components/LiveChart";
 import LucySignalsPanel from "@/components/LucySignalsPanel";
 import SystemControlBoard from "@/components/SystemControlBoard";
 import ModuleGate from "@/components/ModuleGate";
+import PlanGate from "@/components/PlanGate";
 import MotorIntegrations from "@/components/MotorIntegrations";
 import JupiterMarketsPanel from "@/components/JupiterMarketsPanel";
 import WalletBadge from "@/components/WalletBadge";
 import { api, type BrokerAccountPublic, type BrokerStatus } from "@/lib/api";
 import { getUser } from "@/lib/auth";
+import { hasCapability } from "@/lib/plans";
+import { isStaff } from "@/lib/roles";
 import { toast } from "@/lib/toast";
+import { loadUiPrefs } from "@/lib/uiPrefs";
 import { BINANCE_PAIRS, DEFAULT_SYMBOL, formatPair, fetchMarketTickers } from "@/lib/binance";
 import { loadChartPrefs, saveChartPrefs } from "@/lib/chartPrefs";
 import { hydrateIndicatorScripts, persistIndicatorScripts } from "@/lib/indicatorSync";
@@ -90,7 +94,9 @@ type MotorTab = "control" | "integraciones" | "operar" | "jupiter";
 
 export default function TradingPage() {
   const user = getUser();
-  const isAdmin = user?.role === "admin";
+  const isAdmin = isStaff(user);
+  const canJupiter = hasCapability(user, "jupiter_execute");
+  const canSignals = hasCapability(user, "lucy_signals");
   const [tab, setTab] = useState<MotorTab>(isAdmin ? "control" : "operar");
   const [symbol, setSymbol] = useState(DEFAULT_SYMBOL);
   const [broker, setBroker] = useState("binance");
@@ -119,13 +125,17 @@ export default function TradingPage() {
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get("tab");
     if (raw === "control" || raw === "integraciones" || raw === "operar" || raw === "jupiter") {
-      if (!isAdmin && (raw === "control" || raw === "integraciones")) {
+      if (!isAdmin && (raw === "control" || raw === "integraciones" || raw === "jupiter")) {
+        setTab("operar");
+        return;
+      }
+      if (raw === "jupiter" && !canJupiter) {
         setTab("operar");
         return;
       }
       setTab(raw);
     }
-  }, [isAdmin]);
+  }, [isAdmin, canJupiter]);
 
   function goTab(next: MotorTab) {
     setTab(next);
@@ -218,6 +228,14 @@ export default function TradingPage() {
       return;
     }
 
+    const mode = (selectedAccount?.executionMode || "demo") === "live" ? "LIVE" : "DEMO";
+    if (mode === "LIVE" || loadUiPrefs().confirmOrders) {
+      const ok = window.confirm(
+        `¿Enviar ${side === "buy" ? "COMPRA" : "VENTA"} ${mode} de ${qty} ${symbol} en ${brokerLabel}?`
+      );
+      if (!ok) return;
+    }
+
     setLoading(true);
     const payload = {
       broker,
@@ -256,6 +274,10 @@ export default function TradingPage() {
 
   async function closePosition(pos: EnginePosition) {
     if (!pos.ticket) return;
+    if (loadUiPrefs().confirmOrders || (selectedAccount?.executionMode || "demo") === "live") {
+      const ok = window.confirm(`¿Cerrar ${formatPair(pos.symbol)} ticket ${pos.ticket}?`);
+      if (!ok) return;
+    }
     const key = `${pos.broker}-${pos.ticket}`;
     setClosing(key);
     const res = await api.engine.closePosition(pos.broker, pos.ticket);
@@ -269,6 +291,7 @@ export default function TradingPage() {
   }
 
   return (
+    <PlanGate capability="manual_orders">
     <div className="flex w-full min-w-0 flex-col gap-5 p-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -288,12 +311,9 @@ export default function TradingPage() {
               { id: "control" as const, label: "Control" },
               { id: "integraciones" as const, label: "Integraciones" },
               { id: "operar" as const, label: "Operar" },
-              { id: "jupiter" as const, label: "Jupiter" },
+              ...(canJupiter ? [{ id: "jupiter" as const, label: "Jupiter" }] : []),
             ]
-          : [
-              { id: "operar" as const, label: "Operar" },
-              { id: "jupiter" as const, label: "Jupiter" },
-            ]
+          : [{ id: "operar" as const, label: "Operar" }]
         ).map((item) => (
           <button
             key={item.id}
@@ -310,7 +330,7 @@ export default function TradingPage() {
 
       {isAdmin && tab === "control" && <SystemControlBoard />}
       {isAdmin && tab === "integraciones" && <MotorIntegrations />}
-      {tab === "jupiter" && (
+      {tab === "jupiter" && canJupiter && (
         <ModuleGate moduleId="jupiter">
           <JupiterMarketsPanel />
         </ModuleGate>
@@ -578,10 +598,11 @@ export default function TradingPage() {
         )}
       </section>
 
-      <LucySignalsPanel />
+      {canSignals && <LucySignalsPanel />}
       </ModuleGate>
       )}
     </div>
+    </PlanGate>
   );
 }
 

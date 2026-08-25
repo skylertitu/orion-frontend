@@ -23,6 +23,7 @@ import {
   getActiveWallet,
 } from "@/lib/solanaWallet";
 import { toast } from "@/lib/toast";
+import { safeExternalUrl } from "@/lib/safeUrl";
 
 function money(value: number | null, digits = 4): string {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -35,10 +36,11 @@ function shortAddr(address: string): string {
 }
 
 function explorerTx(hash: string, cluster?: string): string {
-  if (hash.startsWith("http")) return hash;
   if (hash.startsWith("SIMULATED-")) return "";
+  if (hash.startsWith("http")) return safeExternalUrl(hash) || "";
   const base = `https://solscan.io/tx/${hash}`;
-  return cluster && cluster !== "mainnet-beta" ? `${base}?cluster=${cluster}` : base;
+  const url = cluster && cluster !== "mainnet-beta" ? `${base}?cluster=${cluster}` : base;
+  return safeExternalUrl(url) || "";
 }
 
 const WALLET_META: Record<WalletProviderName, { label: string; icon: string; url: string }> = {
@@ -200,7 +202,8 @@ export default function JupiterMarketsPanel() {
       toast.success(`+1 SOL de prueba en ${res.data.cluster}`);
     } else {
       toast.error(res.error || "El RPC no dio airdrop. Usa faucet.solana.com");
-      if (network?.faucetUrl) window.open(network.faucetUrl, "_blank", "noreferrer");
+      const faucet = safeExternalUrl(network?.faucetUrl);
+      if (faucet) window.open(faucet, "_blank", "noreferrer");
     }
     setAirdropping(false);
   }
@@ -273,6 +276,7 @@ export default function JupiterMarketsPanel() {
   const walletLinked = Boolean(linked && wallet && linked.address === wallet);
   const walletReady = Boolean(wallet) && walletLinked;
   const lastTxUrl = lastTx ? explorerTx(lastTx, cluster) : "";
+  const faucetHref = safeExternalUrl(network?.faucetUrl);
 
   return (
     <div className="space-y-5">
@@ -412,9 +416,9 @@ export default function JupiterMarketsPanel() {
               >
                 {airdropping ? "Pidiendo SOL..." : "Airdrop Devnet"}
               </button>
-              {network?.faucetUrl && (
+              {faucetHref && (
                 <a
-                  href={network.faucetUrl}
+                  href={faucetHref}
                   target="_blank"
                   rel="noreferrer"
                   className="rounded-xl border border-zinc-700 px-3 py-2 text-[11px] font-bold uppercase text-zinc-400 hover:text-white"
