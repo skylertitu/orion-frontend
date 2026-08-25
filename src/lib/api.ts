@@ -49,12 +49,12 @@ async function request<T>(
 
 export const api = {
   auth: {
-    login: (email: string, password: string, rememberMe = true) =>
+    login: (email: string, password: string, rememberMe = false) =>
       request<AuthData>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password, rememberMe }),
       }),
-    google: (idToken: string, rememberMe = true) =>
+    google: (idToken: string, rememberMe = false) =>
       request<AuthData>("/auth/google", {
         method: "POST",
         body: JSON.stringify({ idToken, rememberMe }),
@@ -73,6 +73,7 @@ export const api = {
         body: JSON.stringify(data),
       }),
     getMe: () => request<User>("/auth/me"),
+    logout: () => request("/auth/logout", { method: "POST" }),
     forgotPassword: (email: string) =>
       request<{
         resetToken?: string;
@@ -110,6 +111,15 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(profileData),
       }),
+    requestEmailVerification: () =>
+      request<{ verifyUrl?: string; emailSent?: boolean }>("/auth/verify-email/request", {
+        method: "POST",
+      }),
+    confirmEmailVerification: (token: string) =>
+      request<User>("/auth/verify-email/confirm", {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      }),
   },
   engine: {
     brokers: () => request<BrokerStatus[]>("/engine/brokers"),
@@ -145,15 +155,15 @@ export const api = {
       }),
   },
   strategies: {
-    list: () => request("/strategies"),
-    get: (id: number) => request(`/strategies/${id}`),
+    list: () => request<StrategyRecord[]>("/strategies"),
+    get: (id: number) => request<StrategyRecord>(`/strategies/${id}`),
     create: (data: {
       userId?: number;
       name: string;
       description: string;
       config: object;
     }) =>
-      request("/strategies", {
+      request<StrategyRecord>("/strategies", {
         method: "POST",
         body: JSON.stringify(data),
       }),
@@ -166,12 +176,12 @@ export const api = {
         isActive?: boolean;
       }
     ) =>
-      request(`/strategies/${id}`, {
+      request<StrategyRecord>(`/strategies/${id}`, {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
     toggle: (id: number, userId?: number) =>
-      request(`/strategies/${id}/toggle`, {
+      request<StrategyRecord>(`/strategies/${id}/toggle`, {
         method: "PATCH",
         body: JSON.stringify(userId ? { userId } : {}),
       }),
@@ -244,13 +254,18 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload),
       }),
+    linkManual: (payload: { address: string; label?: string }) =>
+      request<WalletPublic>("/wallets/link-manual", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
     setPrimary: (id: number) =>
       request<WalletPublic>(`/wallets/${id}/primary`, { method: "POST" }),
     unlink: (id: number) => request(`/wallets/${id}`, { method: "DELETE" }),
   },
   indicators: {
     mine: () => request<ServerIndicator[]>("/indicators/mine"),
-    saveMine: (scripts: Array<{ clientId: string; name: string; source: string; enabled: boolean }>) =>
+    saveMine: (scripts: Array<{ clientId: string; name: string; source: string; enabled: boolean; category?: string }>) =>
       request<ServerIndicator[]>("/indicators/mine", {
         method: "PUT",
         body: JSON.stringify({ scripts }),
@@ -322,6 +337,11 @@ export const api = {
       request(`/admin/users/${id}/promote`, { method: "POST" }),
     demote: (id: number) =>
       request(`/admin/users/${id}/demote`, { method: "POST" }),
+    setPlan: (id: number, plan: "analyst" | "signals" | "builder") =>
+      request(`/admin/users/${id}/plan`, {
+        method: "POST",
+        body: JSON.stringify({ plan }),
+      }),
     system: () => request<SystemOverview>("/admin/system", { timeoutMs: 25000 }),
     toggleModule: (id: string, enabled: boolean, note?: string) =>
       request<SystemOverview>(`/admin/system/${id}`, {
@@ -345,6 +365,34 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify({ apiKey }),
       }),
+  },
+  superadmin: {
+    users: (params?: { page?: number; limit?: number; search?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.page) qs.set("page", String(params.page));
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.search) qs.set("search", params.search);
+      return request<AdminUsersData>(`/superadmin/users?${qs}`);
+    },
+    updateUser: (id: number, data: Partial<AdminUser & { password: string; emailVerified: boolean }>) =>
+      request<AdminUser>(`/superadmin/users/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    setRole: (id: number, role: "user" | "admin" | "superadmin") =>
+      request<AdminUser>(`/superadmin/users/${id}/role`, {
+        method: "POST",
+        body: JSON.stringify({ role }),
+      }),
+    block: (id: number, reason?: string) =>
+      request<AdminUser>(`/superadmin/users/${id}/block`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }),
+    unblock: (id: number) =>
+      request<AdminUser>(`/superadmin/users/${id}/unblock`, { method: "POST" }),
+    deleteUser: (id: number) =>
+      request(`/superadmin/users/${id}`, { method: "DELETE" }),
   },
   system: {
     status: () => request<SystemOverview>("/system/status"),
@@ -449,6 +497,38 @@ export interface BrokerConnectionTestResult {
   account: BrokerAccountPublic;
 }
 
+export type StrategyType = "indicator_combination" | "spread_zscore" | "lucy";
+
+export interface StrategyConfig {
+  type: StrategyType;
+  broker: string;
+  brokerAccountId?: number;
+  symbol: string;
+  pairSymbol?: string;
+  interval?: string;
+  quantity?: number;
+  indicators?: Record<string, unknown>;
+  entryConditions?: Array<Record<string, unknown>>;
+  exitConditions?: Array<Record<string, unknown>>;
+  logic?: "AND" | "OR";
+  stop_loss_pct?: number;
+  take_profit_pct?: number;
+  lookback?: number;
+  zscore_entry?: number;
+  zscore_exit?: number;
+}
+
+export interface StrategyRecord {
+  id: number;
+  userId: number;
+  name: string;
+  description: string;
+  config: StrategyConfig;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface SignalRecord {
   id: number;
   strategyId: number;
@@ -487,8 +567,20 @@ export interface AdminUser {
   id: number;
   username: string;
   email: string;
-  role: "user" | "admin";
+  role: "user" | "admin" | "superadmin";
+  plan?: "analyst" | "signals" | "builder" | null;
   balance: number;
+  firstName?: string | null;
+  lastName?: string | null;
+  phone?: string | null;
+  country?: string | null;
+  language?: string | null;
+  timezone?: string | null;
+  emailVerified?: boolean;
+  blocked?: boolean;
+  blockedReason?: string | null;
+  blockedAt?: string | null;
+  lastLoginAt?: string | null;
   createdAt: string;
   updatedAt?: string;
 }
@@ -517,6 +609,7 @@ export interface ServerIndicator {
   name: string;
   source: string;
   sourceHash: string;
+  category?: "trend" | "oscillator" | "sessions" | "volume" | "custom";
   enabled: boolean;
   blocked: boolean;
 }
@@ -525,6 +618,7 @@ export interface PopularIndicator {
   sourceHash: string;
   name: string;
   source: string;
+  category?: "trend" | "oscillator" | "sessions" | "volume" | "custom";
   users: number;
   inUse: number;
 }
@@ -660,6 +754,8 @@ export interface WalletPublic {
   address: string;
   label: string | null;
   isPrimary: boolean;
+  verified?: boolean;
+  source?: string;
 }
 
 export interface WalletNoncePayload {
@@ -681,6 +777,16 @@ export interface SolanaNetworkStatus {
   phantomHint: string;
 }
 
+export interface SplTokenBalance {
+  mint: string;
+  symbol: string;
+  name: string;
+  initials: string;
+  decimals: number;
+  amount: string;
+  uiAmount: number;
+}
+
 export interface SolanaBalance {
   address: string;
   cluster: string;
@@ -690,6 +796,7 @@ export interface SolanaBalance {
   explorerUrl?: string;
   signature?: string;
   faucetUrl?: string;
+  tokens?: SplTokenBalance[];
 }
 
 export interface WalletTransferPublic {

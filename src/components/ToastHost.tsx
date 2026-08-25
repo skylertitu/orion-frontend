@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { dismissToast, subscribeToasts, type ToastItem, type ToastTone } from "@/lib/toast";
+import { loadUiPrefs } from "@/lib/uiPrefs";
 
 const TONE: Record<ToastTone, { border: string; title: string; dot: string }> = {
   error: { border: "border-red-500/40", title: "text-red-400", dot: "bg-red-500" },
@@ -16,6 +17,25 @@ function ttl(tone: ToastTone): number {
   return 4500;
 }
 
+function playToastBeep(tone: ToastTone) {
+  if (!loadUiPrefs().toastSound) return;
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = tone === "error" ? 220 : tone === "warning" ? 330 : 880;
+    gain.gain.value = 0.04;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.12);
+    osc.onended = () => void ctx.close();
+  } catch {
+    /* autoplay / unsupported */
+  }
+}
+
 export default function ToastHost() {
   const [mounted, setMounted] = useState(false);
   const [alerts, setAlerts] = useState<ToastItem[]>([]);
@@ -27,6 +47,7 @@ export default function ToastHost() {
 
     const unsub = subscribeToasts(
       (item) => {
+        playToastBeep(item.tone);
         setAlerts((prev) => {
           const without = prev.filter((a) => a.id !== item.id);
           return [...without, item].slice(-5);

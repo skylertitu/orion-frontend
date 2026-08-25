@@ -33,7 +33,16 @@ export default function LucySignalsPanel() {
     return () => clearInterval(id);
   }, [load]);
 
-  if (!signals.length) return null;
+  if (!signals.length) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950 px-5 py-10 text-center">
+        <h2 className="font-semibold text-white">Sin señales todavía</h2>
+        <p className="mt-2 text-sm text-zinc-500">
+          Cuando Lucy publique una alerta de compra o venta, aparece en esta lista.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-950">

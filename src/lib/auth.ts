@@ -2,7 +2,8 @@ export interface User {
   id: number;
   username: string;
   email: string;
-  role: 'user' | 'admin';
+  role: 'user' | 'admin' | 'superadmin';
+  plan?: 'analyst' | 'signals' | 'builder' | null;
   firstName?: string;
   lastName?: string;
   phone?: string;
@@ -39,7 +40,7 @@ export function getSession(): Session | null {
   }
 }
 
-export function setSession(session: Session, rememberMe = true) {
+export function setSession(session: Session, rememberMe = false) {
   if (typeof window === "undefined") return;
   const data = JSON.stringify({ ...session, rememberMe });
   if (rememberMe) {
@@ -55,7 +56,7 @@ export function updateUserInSession(userUpdates: Partial<User>) {
   const current = getSession();
   if (!current) return;
   const updatedUser = { ...current.user, ...userUpdates };
-  setSession({ ...current, user: updatedUser }, current.rememberMe ?? true);
+  setSession({ ...current, user: updatedUser }, current.rememberMe ?? false);
 }
 
 export function clearSession() {
@@ -70,4 +71,13 @@ export function getToken(): string | null {
 
 export function getUser(): User | null {
   return getSession()?.user ?? null;
+}
+
+export function displayName(user: User | null | undefined): string {
+  if (!user) return "Trader";
+  const full = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  if (full) return full;
+  if (user.username?.trim()) return user.username.trim();
+  if (user.email) return user.email.split("@")[0];
+  return "Trader";
 }

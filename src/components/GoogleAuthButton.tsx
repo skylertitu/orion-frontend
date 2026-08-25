@@ -7,7 +7,7 @@ import { getFirebaseAuth, getGoogleProvider, isFirebaseConfigured } from "@/lib/
 import { toast } from "@/lib/toast";
 
 export default function GoogleAuthButton({
-  rememberMe = true,
+  rememberMe = false,
   onSuccess,
 }: {
   rememberMe?: boolean;

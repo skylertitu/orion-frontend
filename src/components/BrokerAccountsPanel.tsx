@@ -1,36 +1,32 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { api, BrokerAccountPublic, WalletPublic } from "@/lib/api";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { api, BrokerAccountPublic, type BrokerStatus } from "@/lib/api";
 import { getUser } from "@/lib/auth";
 import { toast } from "@/lib/toast";
-import {
-  connectPhantom,
-  disconnectPhantom,
-  isPhantomInstalled,
-  signPhantomMessage,
-} from "@/lib/solanaWallet";
 
 const BROKERS = [
-  { id: "binance", label: "Binance" },
-  { id: "bybit", label: "Bybit" },
-  { id: "mt5", label: "MetaTrader 5" },
-  { id: "phantom", label: "Phantom" },
+  { id: "binance", label: "Binance", hint: "Spot · API key" },
+  { id: "bybit", label: "Bybit", hint: "Spot · API key" },
+  { id: "mt5", label: "MetaTrader 5", hint: "Puente EA" },
 ] as const;
 
-const inputClass =
-  "w-full rounded-lg border border-zinc-800 bg-black px-3 py-2 text-sm text-white outline-none focus:border-gold";
-
-function statusColor(status: string) {
-  if (status === "connected") return "text-green-400";
-  if (status === "disabled") return "text-amber-400";
-  if (status === "error") return "text-red-400";
-  return "text-zinc-400";
+function brokerMeta(id: string) {
+  return BROKERS.find((b) => b.id === id) || { id, label: id, hint: "" };
 }
 
-function shortAddr(address: string): string {
-  if (address.length < 12) return address;
-  return `${address.slice(0, 4)}…${address.slice(-4)}`;
+function isWorking(status?: BrokerStatus) {
+  return Boolean(status?.enabled && status?.connected);
+}
+
+const inputClass =
+  "w-full rounded-xl border border-zinc-800 bg-black/60 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-gold";
+
+function statusMeta(status: string) {
+  if (status === "connected") return { className: "bg-emerald-500/15 text-emerald-300", label: "Conectado" };
+  if (status === "disabled") return { className: "bg-amber-500/15 text-amber-300", label: "Deshabilitado" };
+  if (status === "error") return { className: "bg-red-500/15 text-red-300", label: "Error" };
+  return { className: "bg-zinc-800 text-zinc-400", label: status || "Pendiente" };
 }
 
 const emptyForm = {
@@ -41,21 +37,16 @@ const emptyForm = {
   apiKey: "",
   apiSecret: "",
   isPrimary: false,
-  phantomUsername: "",
-  phantomAccount: "",
 };
 
 export default function BrokerAccountsPanel() {
   const [accounts, setAccounts] = useState<BrokerAccountPublic[]>([]);
-  const [wallets, setWallets] = useState<WalletPublic[]>([]);
+  const [statuses, setStatuses] = useState<BrokerStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [testingId, setTestingId] = useState<number | null>(null);
   const [modeId, setModeId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [connectingPhantom, setConnectingPhantom] = useState(false);
   const [form, setForm] = useState(emptyForm);
-
-  const isPhantom = form.brokerId === "phantom";
 
   const load = useCallback(async () => {
     const current = getUser();
@@ -65,17 +56,23 @@ export default function BrokerAccountsPanel() {
       return;
     }
     setLoading(true);
-    const [accountsRes, walletsRes] = await Promise.all([
+    const [accountsRes, brokersRes] = await Promise.all([
       api.brokerAccounts.list(),
-      api.wallets.list(),
+      api.engine.brokers(),
     ]);
     if (accountsRes.success && accountsRes.data) {
       setAccounts(accountsRes.data);
     } else {
       toast.error(accountsRes.error || "No se pudieron cargar las cuentas");
     }
-    if (walletsRes.success && Array.isArray(walletsRes.data)) {
-      setWallets(walletsRes.data);
+    if (brokersRes.success && Array.isArray(brokersRes.data)) {
+      setStatuses(brokersRes.data);
+    } else {
+      setStatuses([
+        { id: "binance", label: "Binance", connected: true, enabled: true },
+        { id: "bybit", label: "Bybit", connected: true, enabled: true },
+        { id: "mt5", label: "MetaTrader 5", connected: false, enabled: false },
+      ]);
     }
     setLoading(false);
   }, []);
@@ -84,14 +81,33 @@ export default function BrokerAccountsPanel() {
     load();
   }, [load]);
 
+  const availableBrokers = useMemo(
+    () => BROKERS.filter((b) => isWorking(statuses.find((s) => s.id === b.id))),
+    [statuses]
+  );
+
+  function openForm(brokerId?: string) {
+    const id =
+      brokerId && availableBrokers.some((b) => b.id === brokerId)
+        ? brokerId
+        : availableBrokers[0]?.id;
+    if (!id) {
+      toast.error("Ningún broker está activo ahora.");
+      return;
+    }
+    setForm({
+      ...emptyForm,
+      brokerId: id,
+      accountType: id === "mt5" ? "live" : "spot",
+    });
+    setShowForm(true);
+  }
+
   function selectBroker(brokerId: string) {
-    const current = getUser();
     setForm((f) => ({
       ...f,
       brokerId,
       accountType: brokerId === "mt5" ? "live" : "spot",
-      phantomUsername:
-        brokerId === "phantom" ? f.phantomUsername || current?.username || "" : f.phantomUsername,
     }));
   }
 
@@ -101,9 +117,7 @@ export default function BrokerAccountsPanel() {
     setTestingId(accountId);
     const res = await api.brokerAccounts.test(current.id, accountId);
     if (res.success && res.data) {
-      setAccounts((prev) =>
-        prev.map((a) => (a.id === accountId ? res.data!.account : a))
-      );
+      setAccounts((prev) => prev.map((a) => (a.id === accountId ? res.data!.account : a)));
       toast.success("Conexión verificada");
     } else {
       toast.error(res.error || "No se pudo probar la conexión");
@@ -149,67 +163,12 @@ export default function BrokerAccountsPanel() {
     else toast.error(res.error || "No se pudo eliminar la cuenta");
   }
 
-  async function handleWalletPrimary(id: number) {
-    const res = await api.wallets.setPrimary(id);
-    if (res.success) load();
-    else toast.error(res.error || "No se pudo marcar como principal");
-  }
-
-  async function handleWalletUnlink(id: number) {
-    if (!confirm("¿Desvincular esta billetera?")) return;
-    const res = await api.wallets.unlink(id);
-    if (res.success) {
-      await disconnectPhantom();
-      load();
-    } else {
-      toast.error(res.error || "No se pudo desvincular");
-    }
-  }
-
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
     const current = getUser();
     if (!current) return;
-
-    if (isPhantom) {
-      const username = form.phantomUsername.trim();
-      if (!username) {
-        toast.error("Escribe el nombre de usuario");
-        return;
-      }
-      if (!isPhantomInstalled()) {
-        window.open("https://phantom.app/download", "_blank", "noreferrer");
-        toast.info("Instala Phantom y recarga esta pestaña");
-        return;
-      }
-      setConnectingPhantom(true);
-      try {
-        const address = await connectPhantom();
-        setForm((f) => ({ ...f, phantomAccount: address }));
-        const nonceRes = await api.wallets.nonce(address);
-        if (!nonceRes.success || !nonceRes.data?.message) {
-          throw new Error(nonceRes.error || "No se pudo crear el nonce");
-        }
-        toast.info("Firma el mensaje en Phantom");
-        const signature = await signPhantomMessage(nonceRes.data.message);
-        const linkRes = await api.wallets.link({
-          address,
-          signature,
-          nonce: nonceRes.data.nonce,
-          issuedAt: nonceRes.data.issuedAt,
-          label: username,
-        });
-        if (!linkRes.success) {
-          throw new Error(linkRes.error || "No se pudo vincular Phantom");
-        }
-        setShowForm(false);
-        setForm(emptyForm);
-        toast.success("Phantom conectada");
-        load();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "No se pudo conectar Phantom");
-      }
-      setConnectingPhantom(false);
+    if (!availableBrokers.some((b) => b.id === form.brokerId)) {
+      toast.error("Ese broker no está activo. Elige uno que funcione.");
       return;
     }
 
@@ -235,219 +194,203 @@ export default function BrokerAccountsPanel() {
     }
   }
 
-  const empty = accounts.length === 0 && wallets.length === 0;
-
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          Cuentas conectadas
-        </h2>
-        <button
-          type="button"
-          onClick={() => setShowForm((v) => !v)}
-          className="shrink-0 text-xs text-gold hover:underline"
-        >
-          {showForm ? "Cancelar" : "+ Conectar cuenta"}
-        </button>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-black text-white">Brokers</h2>
+          <p className="text-xs text-zinc-500">Pruebas manuales de compra/venta. Nacen en DEMO.</p>
+        </div>
+        {availableBrokers.length > 0 && (
+          <button
+            type="button"
+            onClick={() => (showForm ? setShowForm(false) : openForm())}
+            className={`rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wide ${
+              showForm ? "border border-zinc-700 text-zinc-300" : "bg-gold text-black"
+            }`}
+          >
+            {showForm ? "Cerrar" : "+ Conectar broker"}
+          </button>
+        )}
       </div>
 
       {showForm && (
-        <form
-          onSubmit={handleCreate}
-          className="space-y-3 rounded-xl border border-zinc-800 bg-zinc-950 p-4"
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs text-zinc-500">Broker</label>
-              <select
-                value={form.brokerId}
-                onChange={(e) => selectBroker(e.target.value)}
-                className={inputClass}
+        <form onSubmit={handleCreate} className="space-y-4 rounded-2xl border border-zinc-800/80 bg-[#0a0d16] p-5">
+          <div className={`grid gap-2 ${availableBrokers.length >= 3 ? "sm:grid-cols-3" : availableBrokers.length === 2 ? "sm:grid-cols-2" : ""}`}>
+            {availableBrokers.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => selectBroker(b.id)}
+                className={`rounded-2xl border px-4 py-3 text-left ${
+                  form.brokerId === b.id
+                    ? "border-gold/50 bg-gold/10"
+                    : "border-zinc-800 bg-black/30 hover:border-zinc-700"
+                }`}
               >
-                {BROKERS.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {!isPhantom && (
-              <div>
-                <label className="mb-1 block text-xs text-zinc-500">Nombre</label>
-                <input
-                  value={form.accountName}
-                  onChange={(e) => setForm((f) => ({ ...f, accountName: e.target.value }))}
-                  required
-                  className={inputClass}
-                />
-              </div>
-            )}
-            {isPhantom && (
+                <div className={`text-sm font-black ${form.brokerId === b.id ? "text-gold" : "text-white"}`}>{b.label}</div>
+                <div className="text-[11px] text-zinc-500">{b.hint}</div>
+              </button>
+            ))}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs text-zinc-500">
+              Nombre
+              <input
+                value={form.accountName}
+                onChange={(e) => setForm((f) => ({ ...f, accountName: e.target.value }))}
+                required
+                placeholder="Ej. Binance desk"
+                className={`${inputClass} mt-1.5`}
+              />
+            </label>
+            {form.brokerId !== "mt5" && (
               <>
-                <div>
-                  <label className="mb-1 block text-xs text-zinc-500">Nombre de usuario</label>
-                  <input
-                    value={form.phantomUsername}
-                    onChange={(e) => setForm((f) => ({ ...f, phantomUsername: e.target.value }))}
-                    required
-                    placeholder="Tu usuario en Orion"
-                    className={inputClass}
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="mb-1 block text-xs text-zinc-500">Cuenta</label>
-                  <input
-                    value={form.phantomAccount}
-                    readOnly
-                    placeholder="Se completa al conectar Phantom"
-                    className={inputClass}
-                  />
-                </div>
-              </>
-            )}
-            {form.brokerId !== "mt5" && !isPhantom && (
-              <>
-                <div>
-                  <label className="mb-1 block text-xs text-zinc-500">API Key</label>
+                <label className="block text-xs text-zinc-500">
+                  API Key
                   <input
                     value={form.apiKey}
                     onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
-                    className={inputClass}
+                    className={`${inputClass} mt-1.5`}
                     autoComplete="off"
                   />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-zinc-500">API Secret</label>
+                </label>
+                <label className="block text-xs text-zinc-500 sm:col-span-2">
+                  API Secret
                   <input
                     type="password"
                     value={form.apiSecret}
                     onChange={(e) => setForm((f) => ({ ...f, apiSecret: e.target.value }))}
-                    className={inputClass}
+                    className={`${inputClass} mt-1.5`}
                     autoComplete="off"
                   />
-                </div>
+                </label>
               </>
             )}
           </div>
-          <button
-            type="submit"
-            disabled={connectingPhantom}
-            className="w-full rounded-lg bg-gold/20 px-4 py-2 text-sm font-medium text-gold disabled:opacity-40 sm:w-auto"
-          >
-            {isPhantom
-              ? connectingPhantom
-                ? "Abriendo Phantom..."
-                : "Conectar Phantom"
-              : "Guardar"}
-          </button>
-          <p className="text-[11px] text-zinc-500">
-            {isPhantom
-              ? "Phantom pedirá permiso y una firma. El campo cuenta se llena con tu dirección pública."
-              : "Pega las API keys reales. La cuenta nace en DEMO: prueba de conexión al broker, órdenes simuladas."}
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[11px] text-zinc-500">
+              {form.brokerId === "mt5"
+                ? "MT5 usa el puente del EA. No pega API keys aquí."
+                : "Pega las API keys reales. La cuenta nace en DEMO."}
+            </p>
+            <button type="submit" className="rounded-xl bg-gold px-4 py-2 text-xs font-black uppercase tracking-wide text-black">
+              Guardar
+            </button>
+          </div>
         </form>
       )}
 
       {loading ? (
-        <p className="text-sm text-zinc-500">Cargando...</p>
-      ) : empty ? (
-        <p className="rounded-lg border border-zinc-800 px-4 py-6 text-center text-sm text-zinc-500">
-          Sin cuentas. Conecta Binance, Bybit, MT5 o Phantom; empieza en DEMO.
-        </p>
+        <div className="rounded-2xl border border-zinc-800/80 bg-[#0a0d16] px-4 py-10 text-center text-sm text-zinc-500">
+          Cargando brokers…
+        </div>
+      ) : accounts.length === 0 && !showForm ? (
+        <div className="rounded-2xl border border-dashed border-zinc-800 bg-[#0a0d16] p-6">
+          <p className="text-center text-sm font-semibold text-white">Ningún broker conectado</p>
+          <p className="mx-auto mt-1 max-w-md text-center text-xs text-zinc-500">
+            {availableBrokers.length === 0
+              ? "Ningún broker está activo en el servidor ahora. Cuando Binance, Bybit o MT5 respondan, aparecerán aquí."
+              : "Elige uno para pruebas manuales. Lucy no opera con estas cuentas."}
+          </p>
+          {availableBrokers.length > 0 && (
+          <div className={`mt-5 grid gap-3 ${availableBrokers.length >= 3 ? "sm:grid-cols-3" : availableBrokers.length === 2 ? "sm:grid-cols-2" : ""}`}>
+            {availableBrokers.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => openForm(b.id)}
+                className="rounded-2xl border border-zinc-800 bg-black/40 px-4 py-4 text-left hover:border-gold/40"
+              >
+                <div className="text-sm font-black text-white">{b.label}</div>
+                <div className="mt-1 text-[11px] text-zinc-500">{b.hint}</div>
+                <div className="mt-3 text-[10px] font-bold uppercase tracking-wide text-gold">Conectar</div>
+              </button>
+            ))}
+          </div>
+          )}
+        </div>
       ) : (
-        <div className="space-y-2">
-          {accounts.map((acc) => (
-            <div
-              key={`broker-${acc.id}`}
-              className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-white">
-                  {acc.accountName}
-                  {acc.isPrimary && <span className="ml-2 text-xs text-gold">principal</span>}
-                  <span
-                    className={`ml-2 text-[10px] font-bold uppercase ${
-                      (acc.executionMode || "demo") === "live" ? "text-red-300" : "text-amber-300"
+        <div className="grid gap-3 lg:grid-cols-2">
+          {accounts.map((acc) => {
+            const live = (acc.executionMode || "demo") === "live";
+            const status = statusMeta(acc.status);
+            return (
+              <article
+                key={`broker-${acc.id}`}
+                className={`rounded-2xl border p-4 ${
+                  acc.isPrimary
+                    ? "border-gold/40 bg-gradient-to-br from-gold/10 via-[#0a0d16] to-[#0a0d16]"
+                    : "border-zinc-800/80 bg-[#0a0d16]"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="truncate text-sm font-black text-white">{acc.accountName}</h3>
+                      {acc.isPrimary && (
+                        <span className="rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold uppercase text-gold">
+                          Principal
+                        </span>
+                      )}
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                          live ? "bg-red-500/15 text-red-300" : "bg-amber-500/10 text-amber-300"
+                        }`}
+                      >
+                        {live ? "Live" : "Demo"}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${status.className}`}>
+                        {status.label}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs uppercase tracking-wide text-zinc-500">
+                      {brokerMeta(acc.brokerId).label}
+                    </div>
+                    {acc.lastError && <p className="mt-2 break-words text-xs text-red-400">{acc.lastError}</p>}
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleTest(acc.id)}
+                    disabled={testingId === acc.id}
+                    className="rounded-lg border border-zinc-800 px-3 py-1.5 text-[11px] font-bold uppercase text-gold hover:border-gold/40 disabled:opacity-40"
+                  >
+                    {testingId === acc.id ? "Probando…" : "Probar"}
+                  </button>
+                  {!acc.isPrimary && (
+                    <button
+                      type="button"
+                      onClick={() => handlePrimary(acc.id)}
+                      className="rounded-lg border border-zinc-800 px-3 py-1.5 text-[11px] font-bold uppercase text-zinc-300 hover:text-white"
+                    >
+                      Principal
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={modeId === acc.id}
+                    onClick={() => void handleMode(acc.id, live ? "demo" : "live")}
+                    className={`rounded-lg border px-3 py-1.5 text-[11px] font-bold uppercase ${
+                      live
+                        ? "border-amber-500/20 text-amber-300"
+                        : "border-red-500/20 text-red-300"
                     }`}
                   >
-                    {(acc.executionMode || "demo") === "live" ? "LIVE" : "DEMO"}
-                  </span>
-                </div>
-                <div className="text-xs text-zinc-500">
-                  {acc.brokerId.toUpperCase()} ·{" "}
-                  <span className={statusColor(acc.status)}>{acc.status}</span>
-                </div>
-                {acc.lastError && (
-                  <p className="mt-1 break-words text-xs text-red-400">{acc.lastError}</p>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-3 text-xs sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => handleTest(acc.id)}
-                  disabled={testingId === acc.id}
-                  className="text-gold"
-                >
-                  {testingId === acc.id ? "Probando..." : "Probar"}
-                </button>
-                {!acc.isPrimary && (
-                  <button type="button" onClick={() => handlePrimary(acc.id)} className="text-zinc-400">
-                    Principal
+                    {modeId === acc.id ? "…" : live ? "Volver a demo" : "Pasar a live"}
                   </button>
-                )}
-                {(acc.executionMode || "demo") === "live" ? (
                   <button
                     type="button"
-                    disabled={modeId === acc.id}
-                    onClick={() => void handleMode(acc.id, "demo")}
-                    className="text-amber-300"
+                    onClick={() => handleDelete(acc.id)}
+                    className="rounded-lg border border-red-500/20 px-3 py-1.5 text-[11px] font-bold uppercase text-red-400 hover:bg-red-500/10"
                   >
-                    {modeId === acc.id ? "..." : "Volver a demo"}
+                    Eliminar
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={modeId === acc.id}
-                    onClick={() => void handleMode(acc.id, "live")}
-                    className="text-red-300"
-                  >
-                    {modeId === acc.id ? "..." : "Pasar a live"}
-                  </button>
-                )}
-                <button type="button" onClick={() => handleDelete(acc.id)} className="text-red-400">
-                  Eliminar
-                </button>
-              </div>
-            </div>
-          ))}
-          {wallets.map((wallet) => (
-            <div
-              key={`wallet-${wallet.id}`}
-              className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-white">
-                  {wallet.label || "Phantom"}
-                  {wallet.isPrimary && <span className="ml-2 text-xs text-gold">principal</span>}
-                  <span className="ml-2 text-[10px] font-bold uppercase text-amber-300">DEMO</span>
                 </div>
-                <div className="font-mono text-xs text-zinc-500" title={wallet.address}>
-                  PHANTOM · {shortAddr(wallet.address)}
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-3 text-xs sm:justify-end">
-                {!wallet.isPrimary && (
-                  <button type="button" onClick={() => void handleWalletPrimary(wallet.id)} className="text-zinc-400">
-                    Principal
-                  </button>
-                )}
-                <button type="button" onClick={() => void handleWalletUnlink(wallet.id)} className="text-red-400">
-                  Desvincular
-                </button>
-              </div>
-            </div>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
     </div>

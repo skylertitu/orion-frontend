@@ -20,6 +20,7 @@ declare global {
   interface Window {
     solana?: PhantomProvider;
     phantom?: { solana?: PhantomProvider };
+    solflare?: PhantomProvider & { isSolflare?: boolean };
   }
 }
 
@@ -41,6 +42,21 @@ function base64ToBytes(value: string): Uint8Array {
 
 export function isPhantomInstalled(): boolean {
   return Boolean(getPhantom());
+}
+
+export function isSolflareInstalled(): boolean {
+  return Boolean(getSolflare());
+}
+
+export function looksLikeSolanaAddress(address: string): boolean {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address.trim());
+}
+
+export function getSolflare(): PhantomProvider | null {
+  if (typeof window === "undefined") return null;
+  const provider = window.solflare;
+  if (provider && typeof provider.connect === "function") return provider;
+  return null;
 }
 
 export function getPhantom(): PhantomProvider | null {
@@ -79,6 +95,30 @@ function addressOf(phantom: PhantomProvider, fallback?: { toString(): string }):
   return fallback?.toString() || phantom.publicKey?.toString() || "";
 }
 
+function signatureBytes(signed: { signature: Uint8Array } | Uint8Array): Uint8Array {
+  return signed instanceof Uint8Array ? signed : signed.signature;
+}
+
+export function waitForSolflare(timeoutMs = 10000): Promise<PhantomProvider | null> {
+  const already = getSolflare();
+  if (already) return Promise.resolve(already);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearInterval(poll);
+      clearTimeout(timer);
+      resolve(getSolflare());
+    };
+    const poll = setInterval(() => {
+      if (getSolflare()) finish();
+    }, 200);
+    const timer = setTimeout(finish, timeoutMs);
+  });
+}
+
 export async function reconnectPhantom(): Promise<string> {
   const phantom = getPhantom() || (await waitForPhantom());
   if (!phantom) return "";
@@ -89,6 +129,28 @@ export async function reconnectPhantom(): Promise<string> {
   } catch {
     return addressOf(phantom);
   }
+}
+
+export async function connectSolflare(): Promise<string> {
+  const wallet = getSolflare() || (await waitForSolflare());
+  if (!wallet) {
+    throw new Error("Instala Solflare para continuar (https://solflare.com)");
+  }
+  if (wallet.publicKey) return wallet.publicKey.toString();
+  const res = await wallet.connect();
+  const address = addressOf(wallet, res.publicKey);
+  if (!address) throw new Error("Solflare no devolvió una dirección");
+  return address;
+}
+
+export async function signSolflareMessage(message: string): Promise<string> {
+  const wallet = getSolflare();
+  if (!wallet?.signMessage) {
+    throw new Error("Solflare no soporta signMessage en este navegador");
+  }
+  const encoded = new TextEncoder().encode(message);
+  const signed = await wallet.signMessage(encoded, "utf8");
+  return bytesToBase64(signatureBytes(signed));
 }
 
 export async function connectPhantom(): Promise<string> {
@@ -115,6 +177,11 @@ export async function disconnectPhantom(): Promise<void> {
   await phantom?.disconnect?.();
 }
 
+export async function disconnectSolflare(): Promise<void> {
+  const wallet = getSolflare();
+  await wallet?.disconnect?.();
+}
+
 export async function signJupiterTransaction(transactionBase64: string): Promise<string> {
   const phantom = getPhantom();
   if (!phantom) throw new Error("Phantom no está conectado");
@@ -130,5 +197,5 @@ export async function signPhantomMessage(message: string): Promise<string> {
   }
   const encoded = new TextEncoder().encode(message);
   const signed = await phantom.signMessage(encoded, "utf8");
-  return bytesToBase64(signed.signature);
+  return bytesToBase64(signatureBytes(signed));
 }

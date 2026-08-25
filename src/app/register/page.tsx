@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { api } from "@/lib/api";
-import { setSession } from "@/lib/auth";
+import { getUser, setSession } from "@/lib/auth";
+import { homePath } from "@/lib/plans";
+import AuthHero from "@/components/AuthHero";
 import GoogleAuthButton from "@/components/GoogleAuthButton";
 import PasswordStrengthHints from "@/components/PasswordStrengthHints";
 import { isPasswordStrong, PASSWORD_POLICY_MESSAGE } from "@/lib/passwordPolicy";
@@ -56,9 +58,9 @@ export default function RegisterPage() {
 
     if (res.success && res.data) {
       const { token, ...user } = res.data;
-      setSession({ user, token }, true);
+      setSession({ user, token }, false);
       toast.success(res.message || "Cuenta creada correctamente");
-      router.push("/dashboard");
+      router.push(homePath(user));
     } else {
       toast.error(res.error || "Error al registrar usuario");
     }
@@ -68,53 +70,7 @@ export default function RegisterPage() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 min-h-screen bg-[#07090e] text-white">
-      {/* Left Column: Hero Banner (7 Cols) */}
-      <div className="relative hidden lg:flex lg:col-span-7 flex-col justify-between p-12 bg-[#0a0d16] border-r border-zinc-800/60 overflow-hidden">
-        {/* Grid Overlay */}
-        <div
-          className="absolute inset-0 opacity-20 pointer-events-none"
-          style={{
-            backgroundImage: `radial-gradient(#334155 1px, transparent 1px)`,
-            backgroundSize: "24px 24px",
-          }}
-        />
-
-        {/* Top Logo */}
-        <div className="relative z-10 flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold text-black font-black text-sm shadow-lg shadow-gold/20">
-            AT
-          </div>
-          <span className="text-lg font-bold tracking-wide text-white">AutoTrade</span>
-        </div>
-
-        {/* Center Hero Heading */}
-        <div className="relative z-10 max-w-lg space-y-4 my-auto">
-          <h1 className="text-5xl font-black leading-tight tracking-tight text-white">
-            Operaciones <br />
-            <span className="text-gold">automatizadas</span> <br />
-            por IA.
-          </h1>
-          <p className="text-sm text-zinc-400 leading-relaxed pt-2">
-            Conecta tus cuentas de Binance, Bybit y MetaTrader. Lucy IA analiza el mercado y ejecuta operaciones con precisión milimétrica.
-          </p>
-        </div>
-
-        {/* Bottom 3 Metric Cards */}
-        <div className="relative z-10 grid grid-cols-3 gap-4 pt-8">
-          <div className="rounded-2xl border border-zinc-800/80 bg-[#111726]/80 p-4 backdrop-blur-md">
-            <div className="text-xl font-black text-gold">73.4%</div>
-            <div className="text-xs text-zinc-500 font-medium mt-0.5">Win Rate</div>
-          </div>
-          <div className="rounded-2xl border border-zinc-800/80 bg-[#111726]/80 p-4 backdrop-blur-md">
-            <div className="text-xl font-black text-white">142</div>
-            <div className="text-xs text-zinc-500 font-medium mt-0.5">Señales / día</div>
-          </div>
-          <div className="rounded-2xl border border-zinc-800/80 bg-[#111726]/80 p-4 backdrop-blur-md">
-            <div className="text-xl font-black text-gold-light">3</div>
-            <div className="text-xs text-zinc-500 font-medium mt-0.5">Brokers</div>
-          </div>
-        </div>
-      </div>
+      <AuthHero />
 
       {/* Right Column: Form Container (5 Cols) */}
       <div className="lg:col-span-5 flex flex-col justify-between p-8 sm:p-12 bg-[#07090e] min-h-screen overflow-y-auto">
@@ -283,8 +239,8 @@ export default function RegisterPage() {
           </div>
 
           <GoogleAuthButton
-            rememberMe
-            onSuccess={() => router.push("/dashboard")}
+            rememberMe={false}
+            onSuccess={() => router.push(homePath(getUser()))}
           />
         </div>
 

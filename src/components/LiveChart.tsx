@@ -26,7 +26,7 @@ import {
 import {
   extraScriptPaneHeight,
   loadIndicatorScripts,
-  runIndicatorScript,
+  runIndicatorScriptsSandboxed,
   type IndicatorScript,
   type ScriptResult,
 } from '@/lib/indicatorScript';
@@ -50,16 +50,19 @@ interface LiveChartProps {
   onScriptsChange?: (next: IndicatorScript[]) => void;
   onScriptResults?: (results: ScriptResult[]) => void;
   adminTools?: boolean;
+  fill?: boolean;
 }
 
-const INTERVALS = [
-  { value: '1m', label: 'M1' },
-  { value: '5m', label: 'M5' },
-  { value: '15m', label: 'M15' },
-  { value: '1h', label: 'H1' },
-  { value: '4h', label: 'H4' },
-  { value: '1d', label: 'D1' },
+export const CHART_INTERVALS = [
+  { value: '1m', label: '1m' },
+  { value: '5m', label: '5m' },
+  { value: '15m', label: '15m' },
+  { value: '1h', label: '1H' },
+  { value: '4h', label: '4H' },
+  { value: '1d', label: '1D' },
 ] as const;
+
+const INTERVALS = CHART_INTERVALS;
 
 const DRAW_TOOLS: { id: DrawingTool; label: string; hint: string }[] = [
   { id: 'cursor', label: 'Navegar', hint: 'Mover la gráfica, elegir un dibujo y borrarlo' },
@@ -82,6 +85,7 @@ export default function LiveChart({
   symbol,
   interval: intervalProp = '15m',
   height = 480,
+  fill = false,
   scripts: scriptsProp,
   onScriptsChange,
   onScriptResults,
@@ -90,6 +94,10 @@ export default function LiveChart({
   const [interval, setChartInterval] = useState(intervalProp);
   const [localScripts, setLocalScripts] = useState<IndicatorScript[]>([]);
   const scripts = scriptsProp || localScripts;
+
+  useEffect(() => {
+    if (intervalProp) setChartInterval(intervalProp);
+  }, [intervalProp]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -101,6 +109,8 @@ export default function LiveChart({
   const lastBarTimeRef = useRef<number | null>(null);
   const scriptsRef = useRef(scripts);
   scriptsRef.current = scripts;
+  const fillRef = useRef(fill);
+  fillRef.current = fill;
   const onResultsRef = useRef(onScriptResults);
   onResultsRef.current = onScriptResults;
   const symbolRef = useRef(symbol);
@@ -120,6 +130,7 @@ export default function LiveChart({
   const [atHistoryStart, setAtHistoryStart] = useState(false);
   const dismissedRef = useRef(new Set<string>());
   const errorSigRef = useRef('');
+  const paintGenRef = useRef(0);
   const drawToolRef = useRef<DrawingTool>('cursor');
   const pendingPointRef = useRef<DrawingPoint | null>(null);
   const drawingsRef = useRef<ChartDrawing[]>([]);
@@ -153,37 +164,47 @@ export default function LiveChart({
   const paintIndicators = useCallback(() => {
     const chart = chartRef.current;
     if (!chart) return;
+    const gen = ++paintGenRef.current;
     const sorted = [...candlesRef.current.values()].sort((a, b) => a.time - b.time);
-    const all = scriptsRef.current.map((s) => runIndicatorScript(s, sorted));
-    const drawn = all.filter((r) => {
-      const script = scriptsRef.current.find((s) => s.id === r.id);
-      return Boolean(script?.enabled) && !r.error;
-    });
-    applyScriptIndicators(chart, sorted, drawn, bagRef.current, candleRef.current);
-    const paneExtra = extraPaneHeightFromResults(drawn);
-    setExtra(paneExtra);
-    chart.applyOptions({ height: height + paneExtra });
-    setReadouts(lastScriptReadouts(drawn));
-    const failed = all.filter((r) => r.error);
-    const nextIds = Object.fromEntries(failed.map((r) => [r.id, r.error as string]));
-    setErrorIds(nextIds);
-
-    const failedIds = new Set(failed.map((r) => r.id));
-    for (const key of [...dismissedRef.current]) {
-      const id = key.slice(0, key.indexOf('::'));
-      if (!failedIds.has(id)) dismissedRef.current.delete(key);
-    }
-
-    const sig = failed.map((r) => `${r.id}::${r.error}`).sort().join('|');
-    if (sig !== errorSigRef.current) {
-      errorSigRef.current = sig;
-      for (const r of failed) {
-        const key = `${r.id}::${r.error}`;
-        if (dismissedRef.current.has(key)) continue;
-        toast.error(r.error as string, r.title || 'Indicador');
+    const scriptsNow = scriptsRef.current;
+    void runIndicatorScriptsSandboxed(scriptsNow, sorted).then((all) => {
+      if (gen !== paintGenRef.current) return;
+      const liveChart = chartRef.current;
+      if (!liveChart) return;
+      const drawn = all.filter((r) => {
+        const script = scriptsRef.current.find((s) => s.id === r.id);
+        return Boolean(script?.enabled) && !r.error;
+      });
+      applyScriptIndicators(liveChart, sorted, drawn, bagRef.current, candleRef.current);
+      const paneExtra = extraPaneHeightFromResults(drawn);
+      setExtra(paneExtra);
+      if (fillRef.current && containerRef.current) {
+        liveChart.applyOptions({ height: Math.max(240, containerRef.current.clientHeight) });
+      } else {
+        liveChart.applyOptions({ height: height + paneExtra });
       }
-    }
-    onResultsRef.current?.(all);
+      setReadouts(lastScriptReadouts(drawn));
+      const failed = all.filter((r) => r.error);
+      const nextIds = Object.fromEntries(failed.map((r) => [r.id, r.error as string]));
+      setErrorIds(nextIds);
+
+      const failedIds = new Set(failed.map((r) => r.id));
+      for (const key of [...dismissedRef.current]) {
+        const id = key.slice(0, key.indexOf('::'));
+        if (!failedIds.has(id)) dismissedRef.current.delete(key);
+      }
+
+      const sig = failed.map((r) => `${r.id}::${r.error}`).sort().join('|');
+      if (sig !== errorSigRef.current) {
+        errorSigRef.current = sig;
+        for (const r of failed) {
+          const key = `${r.id}::${r.error}`;
+          if (dismissedRef.current.has(key)) continue;
+          toast.error(r.error as string, r.title || 'Indicador');
+        }
+      }
+      onResultsRef.current?.(all);
+    });
   }, [height]);
 
   const paintChart = useCallback(
@@ -271,9 +292,12 @@ export default function LiveChart({
   useEffect(() => {
     if (!containerRef.current) return;
     const paneExtra = extraScriptPaneHeight(scriptsRef.current);
+    const startH = fill
+      ? Math.max(240, containerRef.current.clientHeight)
+      : height + paneExtra;
     const chart = createChart(
       containerRef.current,
-      mtChartOptions(containerRef.current.clientWidth, height + paneExtra)
+      mtChartOptions(containerRef.current.clientWidth, startH)
     );
     const candles = chart.addSeries(CandlestickSeries, {
       ...MT_CANDLE_OPTIONS,
@@ -307,11 +331,18 @@ export default function LiveChart({
     drawingRef.current = drawingsLayer;
 
     const onResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
+      if (!containerRef.current) return;
+      const next: { width: number; height?: number } = {
+        width: containerRef.current.clientWidth,
+      };
+      if (fillRef.current) {
+        next.height = Math.max(240, containerRef.current.clientHeight);
       }
+      chart.applyOptions(next);
     };
     window.addEventListener('resize', onResize);
+    const ro = fill ? new ResizeObserver(onResize) : null;
+    if (ro && containerRef.current) ro.observe(containerRef.current);
 
     const persistDrawings = (next: ChartDrawing[], selectedId: string | null = null) => {
       drawingsRef.current = next;
@@ -395,6 +426,7 @@ export default function LiveChart({
 
     return () => {
       window.removeEventListener('resize', onResize);
+      ro?.disconnect();
       chart.unsubscribeClick(onClick);
       chart.unsubscribeCrosshairMove(onMove);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleRange);
@@ -406,7 +438,7 @@ export default function LiveChart({
       drawingRef.current = null;
       bagRef.current = emptyIndicatorBag();
     };
-  }, [height]);
+  }, [height, fill]);
 
   useEffect(() => {
     let cancelled = false;
@@ -648,92 +680,75 @@ export default function LiveChart({
   const isUp = changePct >= 0;
   const priceDecimals = ohlc.close >= 1000 ? 2 : ohlc.close >= 1 ? 4 : 6;
 
-  return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-800/80 bg-[#0d0d0d] shadow-[0_0_40px_rgba(212,168,67,0.04)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800/80 bg-zinc-950/80 px-4 py-2.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold tracking-wide text-white">{symbol}</span>
-          <span className="flex items-center gap-1.5 text-[11px] text-zinc-500">
-            <span className={`inline-block h-1.5 w-1.5 rounded-full ${live ? 'bg-[#089981]' : 'bg-red-500'}`} />
-            {live ? 'Live' : 'Sin datos'}
-          </span>
-          {scripts.map((script) => {
-            const failed = Boolean(errorIds[script.id]);
-            const onChart = script.enabled && !failed;
-            return (
-              <span
-                key={script.id}
-                className={`inline-flex items-center rounded-full border text-[10px] font-bold ${
-                  failed
-                    ? 'border-red-500/40 bg-red-500/15 text-red-300'
-                    : onChart
-                      ? 'border-gold/40 bg-gold/15 text-gold'
-                      : 'border-zinc-800 bg-zinc-900 text-zinc-500'
-                }`}
-              >
-                <button type="button" onClick={() => toggleScript(script.id)} className="px-2 py-0.5">
-                  {script.name}
-                </button>
-                <button
-                  type="button"
-                  title="Eliminar indicador"
-                  onClick={() => deleteScript(script.id)}
-                  className="border-l border-current/20 px-1.5 py-0.5 text-zinc-500 hover:text-red-400"
-                >
-                  ×
-                </button>
-              </span>
-            );
-          })}
-        </div>
+  const scriptChips = scripts.map((script) => {
+    const failed = Boolean(errorIds[script.id]);
+    const onChart = script.enabled && !failed;
+    return (
+      <span
+        key={script.id}
+        className={`inline-flex items-center rounded-full border text-[10px] font-bold ${
+          failed
+            ? "border-red-500/40 bg-red-500/15 text-red-300"
+            : onChart
+              ? "border-gold/40 bg-gold/15 text-gold"
+              : "border-zinc-800 bg-zinc-900 text-zinc-500"
+        }`}
+      >
+        <button type="button" onClick={() => toggleScript(script.id)} className="px-2 py-0.5">
+          {script.name}
+        </button>
+        <button
+          type="button"
+          title="Quitar de la lista"
+          onClick={() => deleteScript(script.id)}
+          className="border-l border-current/20 px-1.5 py-0.5 text-zinc-500 hover:text-red-400"
+        >
+          ×
+        </button>
+      </span>
+    );
+  });
 
-        <div className="flex flex-wrap items-baseline gap-4">
-          <span className="font-mono text-xl font-bold text-white">
-            {ohlc.close > 0
-              ? ohlc.close.toLocaleString(undefined, {
-                  minimumFractionDigits: priceDecimals,
-                  maximumFractionDigits: priceDecimals,
-                })
-              : '—'}
-          </span>
-          <span className={`font-mono text-sm font-medium ${isUp ? 'text-[#089981]' : 'text-[#f23645]'}`}>
-            {ohlc.close > 0 ? `${isUp ? '+' : ''}${changePct.toFixed(2)}%` : ''}
-          </span>
-        </div>
-      </div>
+  const tools = (
+    <>
+      <IconBtn title="Velas" active={chartStyle === 'candles'} onClick={() => changeChartStyle('candles')}>
+        <CandleIcon />
+      </IconBtn>
+      <IconBtn title="Tendencia (línea)" active={chartStyle === 'line'} onClick={() => changeChartStyle('line')}>
+        <TrendLineIcon />
+      </IconBtn>
+      {adminTools && (
+        <>
+          <span className={fill ? "my-1 h-px w-6 bg-zinc-800" : "mx-0.5 h-5 w-px bg-zinc-800"} />
+          {DRAW_TOOLS.map((tool) => (
+            <IconBtn
+              key={tool.id}
+              title={tool.hint}
+              active={drawTool === tool.id}
+              onClick={() => selectDrawTool(tool.id)}
+            >
+              <ToolGlyph id={tool.id} />
+            </IconBtn>
+          ))}
+          <IconBtn title="Borrar dibujo elegido (o todos)" onClick={clearDrawings}>
+            <TrashIcon />
+          </IconBtn>
+        </>
+      )}
+    </>
+  );
 
-      <div className="relative">
+  const chartPane = (
+      <div className={`relative ${fill ? "min-h-0 flex-1" : ""}`}>
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0d0d0d]/80 text-sm text-zinc-500">
             Cargando velas...
           </div>
         )}
+        {!fill && (
         <div className="pointer-events-none absolute inset-x-2 top-2 z-20 flex items-start justify-between gap-2">
           <div className="pointer-events-auto flex items-center gap-1 rounded-xl border border-zinc-800/80 bg-zinc-950/85 p-1 shadow-lg backdrop-blur-md">
-            <IconBtn title="Velas" active={chartStyle === 'candles'} onClick={() => changeChartStyle('candles')}>
-              <CandleIcon />
-            </IconBtn>
-            <IconBtn title="Tendencia (línea)" active={chartStyle === 'line'} onClick={() => changeChartStyle('line')}>
-              <TrendLineIcon />
-            </IconBtn>
-            {adminTools && (
-              <>
-                <span className="mx-0.5 h-5 w-px bg-zinc-800" />
-                {DRAW_TOOLS.map((tool) => (
-                  <IconBtn
-                    key={tool.id}
-                    title={tool.hint}
-                    active={drawTool === tool.id}
-                    onClick={() => selectDrawTool(tool.id)}
-                  >
-                    <ToolGlyph id={tool.id} />
-                  </IconBtn>
-                ))}
-                <IconBtn title="Borrar dibujo elegido (o todos)" onClick={clearDrawings}>
-                  <TrashIcon />
-                </IconBtn>
-              </>
-            )}
+            {tools}
           </div>
           <div className="pointer-events-auto flex gap-0.5 rounded-xl border border-zinc-800/80 bg-zinc-950/85 p-1 shadow-lg backdrop-blur-md">
             {INTERVALS.map((tf) => (
@@ -750,7 +765,13 @@ export default function LiveChart({
             ))}
           </div>
         </div>
-        <div className="pointer-events-none absolute left-3 top-14 z-20 font-mono text-[11px] text-zinc-500">
+        )}
+        {fill && scriptChips.length > 0 && (
+          <div className="pointer-events-auto absolute right-3 top-2 z-20 flex max-w-[58%] flex-wrap justify-end gap-1">
+            {scriptChips}
+          </div>
+        )}
+        <div className={`pointer-events-none absolute z-20 font-mono text-[11px] text-zinc-500 ${fill ? "left-3 top-2" : "left-3 top-14"}`}>
           <span>
             O <span className="text-zinc-300">{ohlc.open > 0 ? ohlc.open.toFixed(priceDecimals) : '—'}</span>
           </span>
@@ -791,7 +812,45 @@ export default function LiveChart({
             Inicio del historial en este timeframe
           </div>
         )}
-        <div ref={containerRef} style={{ height: height + extra }} />
+        <div ref={containerRef} className={fill ? "h-full w-full" : undefined} style={fill ? undefined : { height: height + extra }} />
+      </div>
+  );
+
+  return (
+    <div className={`overflow-hidden bg-[#0d0d0d] ${fill ? "flex h-full min-h-0" : "rounded-2xl border border-zinc-800/80 shadow-[0_0_40px_rgba(212,168,67,0.04)]"}`}>
+      {fill && (
+        <aside className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-zinc-800 bg-[#0a0d16] py-2">
+          {tools}
+        </aside>
+      )}
+      <div className={fill ? "flex min-h-0 min-w-0 flex-1 flex-col" : undefined}>
+        {!fill && (
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-zinc-800/80 bg-zinc-950/80 px-4 py-2.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold tracking-wide text-white">{symbol}</span>
+          <span className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${live ? 'bg-[#089981]' : 'bg-red-500'}`} />
+            {live ? 'Live' : 'Sin datos'}
+          </span>
+          {scriptChips}
+        </div>
+
+        <div className="flex flex-wrap items-baseline gap-4">
+          <span className="font-mono text-xl font-bold text-white">
+            {ohlc.close > 0
+              ? ohlc.close.toLocaleString(undefined, {
+                  minimumFractionDigits: priceDecimals,
+                  maximumFractionDigits: priceDecimals,
+                })
+              : '—'}
+          </span>
+          <span className={`font-mono text-sm font-medium ${isUp ? 'text-[#089981]' : 'text-[#f23645]'}`}>
+            {ohlc.close > 0 ? `${isUp ? '+' : ''}${changePct.toFixed(2)}%` : ''}
+          </span>
+        </div>
+      </div>
+        )}
+        {chartPane}
       </div>
     </div>
   );

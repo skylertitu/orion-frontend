@@ -6,11 +6,22 @@ import {
 } from "@/lib/indicators";
 import { sessionBoxes, sessionLevels } from "@/lib/sessionMath";
 
+export type IndicatorCategory = "trend" | "oscillator" | "sessions" | "volume" | "custom";
+
+export const INDICATOR_CATEGORIES: Array<{ id: IndicatorCategory; label: string }> = [
+  { id: "trend", label: "Tendencia" },
+  { id: "oscillator", label: "Osciladores" },
+  { id: "sessions", label: "Sesiones" },
+  { id: "volume", label: "Volumen" },
+  { id: "custom", label: "Personalizado" },
+];
+
 export type IndicatorScript = {
   id: string;
   name: string;
   enabled: boolean;
   source: string;
+  category?: IndicatorCategory;
   blocked?: boolean;
   sourceHash?: string;
 };
@@ -98,12 +109,14 @@ export const DEFAULT_SCRIPTS: IndicatorScript[] = [
     id: "hagamos",
     name: "Hagamos Profits 3.0",
     enabled: true,
+    category: "sessions",
     source: HAGAMOS_SCRIPT,
   },
   {
     id: "ema",
     name: "EMA",
     enabled: true,
+    category: "trend",
     source: `indicator("EMA", { overlay: true })
 plot(ta.ema(close, 20), { title: "EMA 20", color: "#d4a843" })
 plot(ta.ema(close, 50), { title: "EMA 50", color: "#818cf8" })
@@ -113,6 +126,7 @@ plot(ta.ema(close, 50), { title: "EMA 50", color: "#818cf8" })
     id: "sma",
     name: "SMA",
     enabled: false,
+    category: "trend",
     source: `indicator("SMA", { overlay: true })
 plot(ta.sma(close, 20), { title: "SMA 20", color: "#38bdf8" })
 `,
@@ -121,6 +135,7 @@ plot(ta.sma(close, 20), { title: "SMA 20", color: "#38bdf8" })
     id: "rsi",
     name: "RSI",
     enabled: true,
+    category: "oscillator",
     source: `indicator("RSI", { overlay: false })
 const length = input(14, "Length")
 plot(ta.rsi(close, length), { title: "RSI", color: "#f0d080" })
@@ -132,6 +147,7 @@ hline(30, { color: "#089981", title: "OS" })
     id: "macd",
     name: "MACD",
     enabled: true,
+    category: "oscillator",
     source: `indicator("MACD", { overlay: false })
 const m = ta.macd(close, 12, 26, 9)
 plot(m.histogram, { title: "Hist", style: "histogram" })
@@ -140,6 +156,28 @@ plot(m.signal, { title: "Signal", color: "#f97316" })
 `,
   },
 ];
+
+export function inferIndicatorCategory(name: string, source: string): IndicatorCategory {
+  const blob = `${name}\n${source}`.toLowerCase();
+  if (looksLikeHagamosProfits(source) || /sessionboxes|sessionlevels/.test(blob)) return "sessions";
+  if (/\b(rsi|macd|stoch|cci)\b/.test(blob)) return "oscillator";
+  if (/\b(obv|mfi|volume)\b/.test(blob) && !/\b(ema|sma)\b/.test(blob)) return "volume";
+  if (/\b(ema|sma|wma|bollinger|supertrend|ichimoku)\b/.test(blob)) return "trend";
+  if (/\b(obv|mfi|vwap)\b/.test(blob)) return "volume";
+  return "custom";
+}
+
+export function normalizeIndicatorCategory(raw: unknown, name: string, source: string): IndicatorCategory {
+  if (raw === "trend" || raw === "oscillator" || raw === "sessions" || raw === "volume" || raw === "custom") {
+    return raw;
+  }
+  return inferIndicatorCategory(name, source);
+}
+
+export function indicatorCategoryLabel(category: IndicatorCategory | undefined, name = "", source = ""): string {
+  const id = normalizeIndicatorCategory(category, name, source);
+  return INDICATOR_CATEGORIES.find((c) => c.id === id)?.label || "Personalizado";
+}
 
 function normalizeScript(raw: Partial<IndicatorScript>, fallbackId: string): IndicatorScript | null {
   if (!raw || typeof raw.source !== "string" || raw.source.length >= 200_000) return null;
@@ -151,16 +189,20 @@ function normalizeScript(raw: Partial<IndicatorScript>, fallbackId: string): Ind
     blocked: raw.blocked === true,
     sourceHash: typeof raw.sourceHash === "string" ? raw.sourceHash : undefined,
     source: raw.source,
+    category: normalizeIndicatorCategory(raw.category, name, raw.source),
   };
 }
 
 export function newIndicatorScript(overrides?: Partial<IndicatorScript>): IndicatorScript {
+  const source = overrides?.source ?? BLANK_SCRIPT;
+  const name = overrides?.name ?? "Nuevo indicador";
   return {
     id: `script_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    name: "Nuevo indicador",
     enabled: true,
-    source: BLANK_SCRIPT,
     ...overrides,
+    name,
+    source,
+    category: normalizeIndicatorCategory(overrides?.category, name, source),
   };
 }
 
@@ -255,10 +297,26 @@ function friendlyScriptError(err: unknown): string {
   return message;
 }
 
-export function runIndicatorScript(
-  script: IndicatorScript,
-  bars: { time?: number; open: number; high: number; low: number; close: number; volume: number }[]
-): ScriptResult {
+const FORBIDDEN_API =
+  /\b(localStorage|sessionStorage|indexedDB|document|window|globalThis|fetch|XMLHttpRequest|WebSocket|eval|Function|importScripts|navigator)\b/;
+
+function forbiddenApiError(source: string): string | null {
+  if (FORBIDDEN_API.test(source)) {
+    return "Este script usa APIs bloqueadas (almacenamiento, red o el navegador).";
+  }
+  return null;
+}
+
+export type IndicatorBar = {
+  time?: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
+
+export function runIndicatorScript(script: IndicatorScript, bars: IndicatorBar[]): ScriptResult {
   const empty = { plots: [] as ScriptPlot[], hlines: [] as ScriptHLine[], boxes: [] as ScriptBox[], rays: [] as ScriptRay[] };
   const source =
     looksLikeHagamosProfits(script.source) && looksLikePineScript(script.source)
@@ -272,6 +330,17 @@ export function runIndicatorScript(
       overlay: true,
       ...empty,
       error: pineErrorMessage(),
+    };
+  }
+
+  const blocked = forbiddenApiError(source);
+  if (blocked) {
+    return {
+      id: script.id,
+      title: script.name || "Script",
+      overlay: true,
+      ...empty,
+      error: blocked,
     };
   }
 
@@ -433,6 +502,92 @@ export function runIndicatorScript(
   }
 
   return { id: script.id, title, overlay, plots, hlines, boxes, rays };
+}
+
+type WorkerJob = {
+  resolve: (results: ScriptResult[]) => void;
+  reject: (error: Error) => void;
+};
+
+let indicatorWorker: Worker | null = null;
+let workerSeq = 0;
+const workerJobs = new Map<number, WorkerJob>();
+
+function getIndicatorWorker(): Worker | null {
+  if (typeof window === "undefined" || typeof Worker === "undefined") return null;
+  if (indicatorWorker) return indicatorWorker;
+  try {
+    indicatorWorker = new Worker(new URL("./indicator.worker.ts", import.meta.url), { type: "module" });
+    indicatorWorker.onmessage = (event: MessageEvent) => {
+      const { id, results, error } = event.data as {
+        id: number;
+        results?: ScriptResult[];
+        error?: string;
+      };
+      const job = workerJobs.get(id);
+      if (!job) return;
+      workerJobs.delete(id);
+      if (error) job.reject(new Error(error));
+      else job.resolve(results || []);
+    };
+    indicatorWorker.onerror = () => {
+      for (const job of workerJobs.values()) {
+        job.reject(new Error("El aislador de indicadores falló"));
+      }
+      workerJobs.clear();
+      indicatorWorker?.terminate();
+      indicatorWorker = null;
+    };
+    return indicatorWorker;
+  } catch {
+    return null;
+  }
+}
+
+function sandboxFailure(scripts: IndicatorScript[], message: string): ScriptResult[] {
+  return scripts.map((script) => ({
+    id: script.id,
+    title: script.name || "Script",
+    overlay: true,
+    plots: [],
+    hlines: [],
+    boxes: [],
+    rays: [],
+    error: message,
+  }));
+}
+
+/** Runs indicator scripts in a Web Worker so they cannot touch localStorage or the page. */
+export async function runIndicatorScriptsSandboxed(
+  scripts: IndicatorScript[],
+  bars: IndicatorBar[]
+): Promise<ScriptResult[]> {
+  const worker = getIndicatorWorker();
+  if (!worker) {
+    return sandboxFailure(scripts, "No se pudo aislar la ejecución de indicadores");
+  }
+  const id = ++workerSeq;
+  try {
+    return await new Promise<ScriptResult[]>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        workerJobs.delete(id);
+        reject(new Error("El indicador tardó demasiado"));
+      }, 2500);
+      workerJobs.set(id, {
+        resolve: (results) => {
+          window.clearTimeout(timer);
+          resolve(results);
+        },
+        reject: (error) => {
+          window.clearTimeout(timer);
+          reject(error);
+        },
+      });
+      worker.postMessage({ id, scripts, bars });
+    });
+  } catch (err: unknown) {
+    return sandboxFailure(scripts, err instanceof Error ? err.message : "Error al ejecutar indicadores");
+  }
 }
 
 export function extraScriptPaneHeight(scripts: IndicatorScript[]): number {
